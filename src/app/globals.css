@@ -90,8 +90,10 @@ th { color: var(--muted); background: #f4e9e5; font-size: 0.72rem; letter-spacin
 th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 td code, .mono { font-family: Consolas, monospace; font-size: 0.78rem; overflow-wrap: anywhere; }
 
-.result-layout { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; margin-top: 18px; }
+.result-layout { display: flex; justify-content: center; margin-top: 18px; }
+.result-generated { width: min(100%, 980px); }
 .qr-image { width: min(100%, 210px); height: auto; aspect-ratio: 1; justify-self: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: white; image-rendering: pixelated; }
+.result-copy .qr-image { display: block; margin: 14px 0; }
 .result-copy { min-width: 0; }
 .result-copy button { width: 100%; overflow-wrap: anywhere; }
 .result-copy p { overflow-wrap: anywhere; }
@@ -135,7 +137,8 @@ td code, .mono { font-family: Consolas, monospace; font-size: 0.78rem; overflow-
   .workflow-grid { grid-template-columns: 1fr; }
   .multi-page-layout, .multi-result { grid-template-columns: 1fr; }
   .workflow-card.wide { grid-column: auto; }
-  .field-grid, .result-layout { grid-template-columns: 1fr; }
+  .field-grid { grid-template-columns: 1fr; }
+  .result-generated { grid-template-columns: 1fr; }
   .test-file, .test-result { align-items: stretch; flex-direction: column; }
   .qr-image { width: min(100%, 190px); }
   .multi-result .qr-image { justify-self: start; }

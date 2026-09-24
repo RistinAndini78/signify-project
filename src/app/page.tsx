@@ -122,10 +122,11 @@ export default function Home() {
             <div className="full-field"><label htmlFor="sign-file">Berkas PDF yang akan ditandatangani</label><input id="sign-file" type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
             <button onClick={sign}>Tanda tangani berkas</button>
             {signErr && <p className="error" role="alert">{signErr}</p>}
-            {signed && <div className="success result-layout"><img className="qr-image" alt="QR-Code" src={`data:image/png;base64,${signed.qr.png}`} /><div className="result-copy"><b>Dokumen siap diunduh</b><p>{signed.signers} penandatangan · {signed.bytes} B</p><p className="mono">ID: {signed.docId}</p><div className="result-actions"><button onClick={() => save(signedName, bytesOf(signed.file))}>Unduh {signedName}</button></div><p><small>QR versi {signed.qr.version}, {signed.qr.modules}x{signed.qr.modules} modul. <span className="mono">{signed.qr.text.slice(0, 80)}...</span></small></p></div></div>}
           </section>
-
           <section className="workflow-card">
+            {signed && <div className="success result-layout"><div className="result-generated"><div className="result-copy"><b>Dokumen siap diunduh</b><p>{signed.signers} penandatangan · {signed.bytes} B</p><p className="mono">ID: {signed.docId}</p><img className="qr-image" alt="QR-Code" src={`data:image/png;base64,${signed.qr.png}`} /><div className="result-actions"><button onClick={() => save(signedName, bytesOf(signed.file))}>Unduh {signedName}</button></div><p><small>QR versi {signed.qr.version}, {signed.qr.modules}x{signed.qr.modules} modul. <span className="mono">{signed.qr.text.slice(0, 80)}...</span></small></p></div></div></div>}
+          </section>
+          <section className="workflow-card wide">
             <p className="card-kicker"><span className="card-number">3</span> Pemeriksaan</p>
             <h2>Verifikasi</h2>
             <p className="card-intro">Periksa dokumen bertanda tangan dan cocokkan QR dengan kunci publiknya.</p>

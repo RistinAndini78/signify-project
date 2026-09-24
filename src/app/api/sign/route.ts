@@ -9,7 +9,7 @@ import { keystore, originOf } from '../../../lib/vault';
 const MAX_FILE = 10 * 1024 * 1024; // the signed file travels back as Base64 JSON
 
 export async function POST(req: Request) {
-  if (!allow(`sign:${clientKey(req)}`, 20)) return json({ error: 'too many requests' }, 429);
+  if (!allow(`sign:${clientKey(req)}`, 40)) return json({ error: 'too many requests' }, 429);
   if (tooLarge(req)) return json({ error: `file exceeds ${MAX_UPLOAD / 1048576} MB` }, 413);
   const form = await req.formData().catch(() => null);
   const keyId = String(form?.get('keyId') ?? ''), passphrase = String(form?.get('passphrase') ?? '');
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   if (!file.name.toLowerCase().endsWith('.pdf')) return json({ error: 'hanya file PDF yang dapat ditandatangani' }, 400);
   if (file.size > MAX_FILE) return json({ error: `file exceeds ${MAX_FILE / 1048576} MB` }, 413);
   // wrong passphrases are limited per client and key
-  if (!allow(`unlock:${clientKey(req)}:${keyId}`, 8)) return json({ error: 'too many attempts, try again in a minute' }, 429);
+  if (!allow(`unlock:${clientKey(req)}:${keyId}`, 40)) return json({ error: 'too many attempts, try again in a minute' }, 429);
   try {
     const { info, privateKey } = keystore().unlock(keyId, passphrase);
     const publicKey = publicFromRaw(fromB64u(info.publicKey));

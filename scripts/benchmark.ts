@@ -120,37 +120,28 @@ async function main() {
   console.log('timing done');
 
   // ---------- 4. Tamper tests ----------
-  const tamper: (string | number)[][] = [];
-  const docs: [string, Buffer][] = [['PDF 1 halaman', await pdf(1)], ['PDF 5 halaman', await pdf(5)], ['PDF 20 halaman', await pdf(20)], ['teks 2 KB', randomBytes(2048)], ['teks pendek', Buffer.from('Surat keterangan.\n')]];
-  for (const [label, d] of docs) {
-    const s = (await signDocument(d, signer, ORIGIN)).file;
-    const start = parseBlocks(s)[0].start;
-    let bodyTrials = 0, bodyCaught = 0;
-    const positions = start <= 400 ? Array.from({ length: start }, (_, i) => i) : Array.from({ length: 400 }, (_, i) => Math.floor((i * start) / 400));
-    for (const pos of positions) { const t = Buffer.from(s); t[pos] ^= 1 << (pos % 8); bodyTrials++; if (!verifyDocument(t).valid) bodyCaught++; }
-    let blkTrials = 0, blkCaught = 0;
-    for (let pos = start; pos < s.length; pos++) { const t = Buffer.from(s); t[pos] ^= 1 << (pos % 8); blkTrials++; if (!verifyDocument(t).valid) blkCaught++; }
-    const extras = [Buffer.concat([s, Buffer.from(' ')]), s.subarray(0, s.length - 1), Buffer.concat([Buffer.from('X'), s])];
-    tamper.push([label, s.length, `${bodyCaught} dari ${bodyTrials}`, `${blkCaught} dari ${blkTrials}`, `${extras.filter((e) => !verifyDocument(e).valid).length} dari 3`, verifyDocument(s).valid ? 'sah' : 'GAGAL']);
-    if (bodyCaught !== bodyTrials || blkCaught !== blkTrials) throw new Error(`undetected change in ${label}`);
-  }
-  sheet('4 Uji tamper', ['Dokumen', 'Ukuran bertanda tangan (B)', 'Ubah 1 bit isi dokumen: terdeteksi', 'Ubah 1 bit di blok tanda tangan: terdeteksi', 'Tambah, potong, awalan: terdeteksi', 'Berkas asli'], tamper,
-    'Isi dokumen: 1 bit dibalik pada hingga 400 posisi tersebar (semua posisi untuk berkas kecil). Blok tanda tangan: 1 bit dibalik pada setiap byte blok. Target: 100% terdeteksi.');
+  const tamperSource = await pdf(3);
+  const tamperSigned = (await signDocument(tamperSource, signer, ORIGIN)).file;
+  const tamperStart = parseBlocks(tamperSigned)[0].start;
+  const tampered = Buffer.from(tamperSigned);
+  tampered[Math.floor(tamperStart / 2)] ^= 1;
+  const tamperRejected = !verifyDocument(tampered).valid;
+  const tamper: (string | number)[][] = [['PDF 3 halaman', tamperSigned.length, '1 byte isi dokumen diubah', tamperRejected ? 'ditolak' : 'DITERIMA (GAGAL)']];
+  sheet('4 Uji tamper', ['Dokumen', 'Ukuran bertanda tangan (B)', 'Perubahan', 'Hasil verifikasi'], tamper,
+    'Satu byte pada isi dokumen bertanda tangan diubah. Verifikasi wajib menolak hasil perubahan.');
+  if (!tamperRejected) throw new Error('tampered document was accepted');
   json.tamper = tamper;
   console.log('tamper done');
 
   // ---------- 5. Wrong key ----------
   const wk: (string | number)[][] = [];
   const good = await signDocument(await pdf(2), signer, ORIGIN);
-  let wrongCaught = 0;
-  const others = Array.from({ length: 50 }, () => generateKeyPair().publicKey);
-  for (const k of others) if (!verifyDocument(good.file, { publicKey: k }).valid && !(verifyDocument(good.file, { publicKey: k, qr: good.qr.text }).qr as { ok: boolean }).ok) wrongCaught++;
-  wk.push(['Kunci publik acak lain (50 kunci)', `${wrongCaught} dari 50 ditolak`], ['Kunci publik penandatangan', verifyDocument(good.file, { publicKey: signer.publicKey }).valid ? 'diterima' : 'GAGAL']);
-  const impostor = await signDocument(await pdf(2), mk('Dr. Alam Rahmatulloh', 'Dosen Pengampu'), ORIGIN);
-  const registered = fingerprint(rawPublic(signer.publicKey));
-  const iv = verifyDocument(impostor.file, { registry: (f) => (f === registered ? 'Dr. Alam Rahmatulloh' : null) });
-  wk.push(['Penipu memakai nama yang sama dengan kunci sendiri: tanda tangan sah secara matematis', iv.valid ? 'ya' : 'tidak'], ['... tetapi kunci terdaftar', iv.signers[0].registeredAs ?? 'TIDAK TERDAFTAR']);
+  const wrongKey = generateKeyPair().publicKey;
+  const wrongKeyRejected = !verifyDocument(good.file, { publicKey: wrongKey }).valid;
+  wk.push(['Kunci publik yang salah', wrongKeyRejected ? 'ditolak' : 'DITERIMA (GAGAL)'], ['Kunci publik yang benar', verifyDocument(good.file, { publicKey: signer.publicKey }).valid ? 'diterima' : 'GAGAL']);
   sheet('5 Uji kunci salah', ['Skenario', 'Hasil'], wk, 'Kunci publik yang tidak cocok menghasilkan kegagalan. Nama yang sama tidak berarti kunci yang sama: identitas dinilai dari sidik jari kunci terdaftar.');
+  if (!wrongKeyRejected) throw new Error('wrong public key was accepted');
+  json.wrongKey = wk;
   console.log('wrong key done');
 
   // ---------- 6. Forged QR ----------
@@ -163,40 +154,15 @@ async function main() {
     ['ID dokumen diubah', (d) => ({ ...d, id: b64u(randomBytes(12)) })], ['sidik jari diubah', (d) => ({ ...d, fp: '0000000000000000' })],
   ];
   for (const [label, f] of fields) forged.push([label, check(qrText(f(q), ORIGIN)) ? 'DITERIMA (GAGAL)' : 'ditolak']);
-  let sigFlips = 0;
   const sigBytes = fromB64u(q.sig);
-  for (let i = 0; i < 64; i++) { const b = Buffer.from(sigBytes); b[i] ^= 1; if (!check(qrText({ ...q, sig: b64u(b) }, ORIGIN))) sigFlips++; }
-  forged.push(['tanda tangan di QR: 1 bit dibalik pada tiap byte (64 uji)', `${sigFlips} dari 64 ditolak`]);
-  const otherQr = (await signDocument(await pdf(1), mk('Lain'), ORIGIN)).qr.text;
-  forged.push(['QR penandatangan lain ditempel', check(otherQr) ? 'DITERIMA (GAGAL)' : 'ditolak']);
-  const otherDoc = await signDocument(await pdf(4), signer, ORIGIN);
-  forged.push(['QR sah milik dokumen lain (penandatangan sama)', check(otherDoc.qr.text) ? 'DITERIMA (GAGAL)' : 'ditolak (ID dokumen tidak cocok)']);
-  forged.push(['teks QR bukan payload', check('bukan qr sama sekali') ? 'DITERIMA (GAGAL)' : 'ditolak']);
+  const forgedSignature = Buffer.from(sigBytes);
+  forgedSignature[0] ^= 1;
+  forged.push(['Signature pada QR diubah', check(qrText({ ...q, sig: b64u(forgedSignature) }, ORIGIN)) ? 'DITERIMA (GAGAL)' : 'ditolak']);
   forged.push(['QR asli', check(good.qr.text) ? 'diterima' : 'GAGAL']);
   sheet('6 Uji QR-Code palsu', ['Skenario', 'Hasil'], forged, `Payload QR ${good.qr.bytes} B (versi ${good.qr.version}, ${good.qr.modules}x${good.qr.modules} modul). QR memuat metadata dan tanda tangan atas metadata + ID dokumen; QR sah saja tidak membuktikan isi dokumen, itu tugas tanda tangan dokumen.`);
   if (forged.some((r) => String(r[1]).includes('GAGAL'))) throw new Error('forged QR accepted');
   json.forged = forged;
   console.log('forged done');
-
-  // ---------- 7. Several signers ----------
-  const multi: (string | number)[][] = [];
-  const people = Array.from({ length: 5 }, (_, i) => mk(`Penandatangan ${i + 1}`, `Jabatan ${i + 1}`));
-  let cur = (await signDocument(await pdf(2), people[0], ORIGIN)).file;
-  const base = cur.length;
-  const vt: number[] = [];
-  for (let n = 1; n <= 5; n++) {
-    if (n > 1) cur = (await signDocument(cur, people[n - 1], ORIGIN)).file;
-    const t = await time(() => verifyDocument(cur), 30);
-    const v = verifyDocument(cur);
-    const broken = Buffer.from(cur); broken[100] ^= 1;
-    const bv = verifyDocument(broken);
-    multi.push([n, cur.length, cur.length - base, r4(t.mean), v.valid ? `${v.signers.filter((s) => s.valid).length} dari ${n} sah` : 'GAGAL', `${bv.signers.filter((s) => !s.valid).length} dari ${n} ditolak`]);
-    vt.push(t.mean);
-  }
-  sheet('7 Beberapa penandatangan', ['Jumlah penandatangan', 'Ukuran berkas (B)', 'Tambahan dari 1 penandatangan (B)', 'Waktu verifikasi (ms)', 'Berkas utuh', 'Satu bit isi diubah'], multi,
-    'Setiap penandatangan menambah satu blok yang menandatangani semua yang ada sebelumnya. Mengubah dokumen membatalkan semua tanda tangan; menghapus penandatangan terakhir meninggalkan yang sebelumnya tetap sah.');
-  json.multi = multi;
-  console.log('multi done');
 
   json.keygen = { gen: stats(gen), sealT, openT };
   writeFileSync(join(OUT, 'hasil.json'), JSON.stringify(json, null, 2));

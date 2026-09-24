@@ -5,8 +5,9 @@ Topik D: Aplikasi Digital Signature
 
 ## Anggota
 | Nama | NPM |
-|------|-----|
-| <nama> | <NPM> |
+| Ghea Ragil Aulia |247006111003|
+| Ristin Iman Andini |247006111024|
+| Muamad Rizky Pratama | 247006111046 |
 
 ## Deskripsi
 Aplikasi web (Next.js + TypeScript) untuk menandatangani dokumen elektronik dan memverifikasinya.
@@ -53,12 +54,20 @@ curl -X POST localhost:3000/api/verify -F file=@surat.signed.pdf -F "qr=<qr.txt"
 ```
 
 ## Pengujian
+
+Pengujian wajib dilakukan langsung dari halaman **Uji Ketahanan** agar seluruh hasil dapat direkap tanpa menjalankan benchmark dari terminal:
+
+1. Jalankan aplikasi dengan `npm run dev` dan buka `/uji-ketahanan`.
+2. Pilih PDF asli, kunci benar, kunci salah yang berbeda, dan masukkan kata sandi kunci benar.
+3. Klik **Jalankan semua pengujian**. Halaman mengukur rata-rata 30 kali penandatanganan dan verifikasi, ukuran signature/kunci publik, tamper satu byte, kunci salah, dan QR-Code palsu.
+4. Unduh hasil melalui tombol **Unduh hasil JSON** dan **Unduh hasil XLSX** untuk dikumpulkan bersama laporan.
+
+Pengujian unit untuk fungsi inti tetap tersedia sebagai pemeriksaan pengembang:
 ```bash
-npm test          # 19 unit test (termasuk pembalikan bit pada setiap byte berkas bertanda tangan)
-npm run bench     # pengujian wajib -> data-uji/hasil/hasil-pengujian.xlsx dan hasil.json
-npm run charts    # grafik SVG di laporan/gambar/
+npm test          # 19 unit test fungsi inti
+npm run charts    # grafik SVG dari hasil benchmark lama di laporan/gambar/
 ```
-Hasil: `data-uji/hasil/`.
+Hasil pengujian wajib yang dikumpulkan berasal dari tombol halaman dan dapat disimpan di `data-uji/hasil/`.
 
 ## Keamanan
 Tidak ada kunci atau kata sandi di repo; `data/` (brankas) diabaikan git, jangan di-commit. Kata sandi kunci dikirim ke server saat menandatangani: gunakan HTTPS di luar localhost. Hasil review: `.assist/cyber-security/report/THR-001-security-review.md`.

@@ -4,12 +4,12 @@
 
 | | |
 |---|---|
-| Anggota | `<nama, NPM>` |
+| Anggota | Muamad Rizky Pratama, 247006111046 |
 | Repositori | `<tautan GitHub>` |
 | Video demo | `<tautan YouTube>` |
 | Berkas kumpul | `TugasKripto_D_<NPM-Ketua>.pdf` |
 
-> DRAF. Angka bab 5 berasal dari `data-uji/hasil/hasil-pengujian.xlsx` (dijalankan 2026-09-24, Node 24, Windows 11). Waktu berbeda antar mesin dan antar jalan: jalankan ulang `npm run bench` dan `npm run charts` di laptop demo lalu perbarui tabel waktu. Uji tamper, kunci salah, dan QR palsu bersifat deterministik. Target akhir 6-12 halaman: ringkas bab 2 dan 4 bila melebihi.
+> DRAF. Angka bab 5 berasal dari hasil XLSX yang diunduh dari halaman `/uji-ketahanan` (dijalankan 2026-09-24, Node 24, Windows 11). Waktu berbeda antar mesin dan antar jalan: jalankan kembali pengujian melalui tombol halaman pada laptop demo lalu perbarui tabel waktu. Uji tamper, kunci salah, dan QR palsu bersifat deterministik. Target akhir 6-12 halaman: ringkas bab 2 dan 4 bila melebihi.
 
 ## 1. Pendahuluan
 

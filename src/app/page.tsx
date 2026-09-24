@@ -89,7 +89,7 @@ export default function Home() {
           <p className="eyebrow">Siliwangi-Disign</p>
           <h1>Tanda tangan yang bisa diverifikasi.</h1>
           <p className="hero-copy">Lindungi dokumen dengan ECDSA P-256, hash SHA-256, dan QR-Code yang membawa identitas penandatangan. Satu ruang kerja untuk membuat kunci, menandatangani, dan memeriksa keaslian.</p>
-          <a className="hero-link" href="/multi-sign">Buka Multi-signature</a>
+          <div className="hero-links"><a className="hero-link" href="/multi-sign">Buka Multi-signature</a><a className="hero-link" href="/uji-ketahanan">Uji Ketahanan Dokumen</a></div>
         </header>
 
         <div className="workflow-grid">

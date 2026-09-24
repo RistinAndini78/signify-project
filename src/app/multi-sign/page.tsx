@@ -82,6 +82,7 @@ export default function MultiSignPage() {
           <p className="eyebrow">Siliwangi-Disign</p>
           <h1>Multi-tanda tangan.</h1>
           <p className="hero-copy">Tambahkan tanda tangan secara berurutan. Setiap signer menandatangani dokumen yang sudah memuat signature sebelumnya.</p>
+          <a className="hero-link" href="/">Kembali ke tanda tangan dan verifikasi</a>
         </header>
 
         <div className="multi-page-layout">

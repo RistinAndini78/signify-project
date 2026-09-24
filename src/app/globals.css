@@ -18,7 +18,6 @@ body {
   min-width: 320px;
   color: var(--ink);
   background: var(--paper);
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -46,9 +45,10 @@ button { cursor: pointer; }
 .hero::after { content: ""; position: absolute; right: 40px; bottom: 0; width: 112px; height: 3px; background: var(--copper); }
 
 .eyebrow { position: relative; z-index: 1; margin: 0 0 10px; color: #e9b69f; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
-.hero h1 { position: relative; z-index: 1; max-width: 760px; margin: 0; color: white; font: 700 clamp(2rem, 4.2vw, 3.45rem)/1.02 Georgia, serif; letter-spacing: 0; }
+.hero h1 { position: relative; z-index: 1; max-width: 760px; margin: 0; color: white; font-size: clamp(2rem, 4.2vw, 3.45rem); font-weight: 700; line-height: 1.02; letter-spacing: 0; }
 .hero-copy { position: relative; z-index: 1; max-width: 670px; margin: 14px 0 0; color: #e8d1cc; font-size: 0.96rem; line-height: 1.6; }
-.hero-link { position: relative; z-index: 1; display: inline-block; margin-top: 18px; border: 1px solid #e9b69f; border-radius: 7px; padding: 10px 14px; color: #fff9f4; font-size: 0.86rem; font-weight: 700; text-decoration: none; transition: background 140ms ease, color 140ms ease; }
+.hero-links { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 10px; }
+.hero-link { display: inline-block; margin-top: 18px; border: 1px solid #e9b69f; border-radius: 7px; padding: 10px 14px; color: #fff9f4; font-size: 0.86rem; font-weight: 700; text-decoration: none; transition: background 140ms ease, color 140ms ease; }
 .hero-link:hover { color: var(--maroon-dark); background: #f4d5c5; }
 
 .workflow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
@@ -58,7 +58,7 @@ button { cursor: pointer; }
 .workflow-card.wide { grid-column: 1 / -1; }
 .card-kicker { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; color: var(--maroon); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
 .card-number { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: white; background: var(--maroon); font-size: 0.9rem; }
-.workflow-card h2 { margin: 0 0 9px; font: 700 1.72rem/1.15 Georgia, serif; }
+.workflow-card h2 { margin: 0 0 9px; font-size: 1.72rem; font-weight: 700; line-height: 1.15; }
 .card-intro { margin: 0 0 20px; color: var(--muted); font-size: 0.98rem; line-height: 1.6; }
 
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -106,6 +106,18 @@ td code, .mono { font-family: Consolas, monospace; font-size: 0.78rem; overflow-
 .footer-note a { color: var(--maroon); font-weight: 700; }
 .signer-timeline { min-height: 100%; }
 .empty-state { padding: 22px 16px; border: 1px dashed #c9937d; border-radius: 9px; color: var(--muted); background: #fcf2ec; font-size: 0.9rem; line-height: 1.5; }
+.test-file { display: flex; justify-content: space-between; gap: 16px; margin: 4px 0 16px; padding: 11px 12px; border-left: 3px solid var(--copper); color: var(--muted); background: #fbf3ef; font-size: 0.86rem; overflow-wrap: anywhere; }
+.test-file b { color: var(--maroon-dark); }
+.test-results { display: grid; gap: 10px; }
+.test-result { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px; border: 1px solid var(--line); border-left: 4px solid var(--copper); border-radius: 9px; background: #fffdfb; }
+.test-result.test-passed { border-left-color: #55805f; }
+.test-result.test-failed { border-left-color: var(--danger); }
+.test-result h3 { margin: 5px 0 3px; font-size: 1rem; }
+.test-result p, .test-result small { display: block; margin: 0; color: var(--muted); line-height: 1.45; }
+.test-result small { margin-top: 5px; overflow-wrap: anywhere; }
+.test-status { color: #55805f; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; }
+.test-failed .test-status { color: var(--danger); }
+.test-result .button-secondary { flex: 0 0 auto; }
 .signer-list { display: grid; gap: 0; margin: 20px 0 0; padding: 0; list-style: none; }
 .signer-list li { position: relative; display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 0 0 22px; }
 .signer-list li:not(:last-child)::after { content: ""; position: absolute; left: 16px; top: 34px; bottom: 0; width: 1px; background: #d9b8ae; }
@@ -124,6 +136,7 @@ td code, .mono { font-family: Consolas, monospace; font-size: 0.78rem; overflow-
   .multi-page-layout, .multi-result { grid-template-columns: 1fr; }
   .workflow-card.wide { grid-column: auto; }
   .field-grid, .result-layout { grid-template-columns: 1fr; }
+  .test-file, .test-result { align-items: stretch; flex-direction: column; }
   .qr-image { width: min(100%, 190px); }
   .multi-result .qr-image { justify-self: start; }
 }

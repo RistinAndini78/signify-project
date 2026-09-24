@@ -58,6 +58,6 @@ Skenario wajib: tandatangani sebuah PDF, pindai QR-Code untuk verifikasi yang be
 ## Rencana cadangan
 
 - Ponsel tidak terhubung: tempel isi QR (tombol Salin dari tautan yang ditampilkan) di kolom verifikasi.
-- Aplikasi gagal jalan: putar video cadangan; jalankan `npm test` (19 unit test) dan tunjukkan tabel XLSX.
+- Aplikasi gagal jalan: putar video cadangan; gunakan hasil JSON/XLSX yang sebelumnya diunduh dari halaman `/uji-ketahanan`.
 - Lupa kata sandi kunci: buat kunci baru (ID dokumen dan tanda tangan sebelumnya tetap sah untuk kunci lama).
 - PDF tidak mau ditandatangani (terenkripsi/rusak): pakai `surat.pdf` cadangan atau berkas non-PDF.

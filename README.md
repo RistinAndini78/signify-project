@@ -25,7 +25,7 @@ Alasan desain: ADR-001 di `.assist/`.
 ```bash
 npm install
 ```
-Opsional: `PUBLIC_URL=http://192.168.x.x:3000` agar QR-Code memuat alamat yang dapat dijangkau ponsel; `KEYSTORE_DIR` untuk lokasi brankas. Tidak ada rahasia yang perlu dikonfigurasi.
+Untuk development lokal, `KEYSTORE_DIR` dapat digunakan untuk mengatur lokasi brankas. Pada Vercel, keystore otomatis menggunakan Vercel Blob jika `BLOB_READ_WRITE_TOKEN` tersedia. Jangan memasukkan token ke GitHub.
 
 ## Menjalankan
 ```bash
@@ -39,6 +39,15 @@ $env:PUBLIC_URL="http://192.168.x.x:3000"; npm run dev
 ```
 
 Tanpa `PUBLIC_URL`, aplikasi mencoba memakai alamat IPv4 LAN secara otomatis. Jangan gunakan `localhost` untuk QR yang akan dipindai dari ponsel karena `localhost` pada ponsel menunjuk ke ponsel itu sendiri.
+
+## Deployment Vercel
+
+1. Buat Blob Store dari Vercel Dashboard melalui **Storage → Create Database → Blob** dan hubungkan store ke project.
+2. Pastikan environment variable `BLOB_READ_WRITE_TOKEN` tersedia pada environment **Production**.
+3. Deploy atau redeploy project dari branch production (`main`).
+4. Buka aplikasi Vercel, buat kunci baru, lalu refresh halaman untuk memastikan kunci tetap tersimpan.
+
+Tanpa `BLOB_READ_WRITE_TOKEN`, aplikasi memakai `data/keystore` lokal. Storage lokal cocok untuk development, tetapi tidak persisten pada Vercel. Private key yang disimpan ke Blob tetap tersegel dengan AES-256-GCM; Blob tidak menerima private key mentah.
 
 ## Contoh penggunaan
 1. **Buat kunci**: isi nama, jabatan, institusi, dan kata sandi kunci (minimal 10 karakter).

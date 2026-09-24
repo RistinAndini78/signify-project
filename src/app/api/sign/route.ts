@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   // wrong passphrases are limited per client and key
   if (!allow(`unlock:${clientKey(req)}:${keyId}`, 40)) return json({ error: 'too many attempts, try again in a minute' }, 429);
   try {
-    const { info, privateKey } = keystore().unlock(keyId, passphrase);
+    const { info, privateKey } = await keystore().unlock(keyId, passphrase);
     const publicKey = publicFromRaw(fromB64u(info.publicKey));
     const r = await signDocument(Buffer.from(await file.arrayBuffer()), { privateKey, publicKey, name: info.name, title: info.title, org: info.org }, originOf(req));
     return json({

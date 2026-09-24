@@ -3,7 +3,7 @@ import { VaultError } from '../../../lib/sig/keystore';
 import { keystore } from '../../../lib/vault';
 
 export async function GET() {
-  return json({ keys: keystore().list() });
+  return json({ keys: await keystore().list() });
 }
 
 export async function POST(req: Request) {
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== 'object') return json({ error: 'JSON body required' }, 400);
   try {
-    return json(keystore().create({ name: body.name, title: body.title, org: body.org, passphrase: body.passphrase }), 201);
+    return json(await keystore().create({ name: body.name, title: body.title, org: body.org, passphrase: body.passphrase }), 201);
   } catch (e) {
     if (e instanceof VaultError) return json({ error: e.message }, 400);
     throw e;

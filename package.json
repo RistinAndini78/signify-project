@@ -11,6 +11,7 @@
     "charts": "tsx scripts/charts.ts"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.0",
     "next": "^16.3.6",
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",

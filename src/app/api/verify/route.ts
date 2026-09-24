@@ -17,10 +17,11 @@ export async function POST(req: Request) {
   if (file instanceof File && file.size > MAX_UPLOAD) return json({ error: `file exceeds ${MAX_UPLOAD / 1048576} MB` }, 413);
   try {
     const store = keystore();
-    const registry = (fp: string) => store.byFingerprint(fp)?.name ?? null;
+    const keys = await store.list();
+    const registry = (fp: string) => keys.find((key) => key.fp === fp)?.name ?? null;
     let publicKey;
     if (pubkey) publicKey = parsePublicKey(pubkey);
-    else if (keyId) publicKey = publicFromRaw(fromB64u(store.get(keyId).publicKey));
+    else if (keyId) publicKey = publicFromRaw(fromB64u((await store.get(keyId)).publicKey));
     const bytes = file instanceof File ? Buffer.from(await file.arrayBuffer()) : Buffer.alloc(0);
     return json(verifyDocument(bytes, { publicKey, qr: qr || undefined, registry }));
   } catch (e) {

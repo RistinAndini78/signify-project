@@ -1,0 +1,24 @@
+# secrets (tugas melarang kunci/sandi di repo)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+private_key*
+# runtime
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+# tooling
+.assist/
+.claude/
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+# signer key vault (encrypted private keys); never commit
+data/

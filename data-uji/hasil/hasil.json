@@ -1,0 +1,279 @@
+{
+  "sizes": [
+    [
+      "Tanda tangan ECDSA P-256 (r||s, dipakai)",
+      64,
+      "tetap 64 B"
+    ],
+    [
+      "Tanda tangan format DER (pembanding)",
+      71,
+      "70-72 B, bervariasi"
+    ],
+    [
+      "Kunci publik, titik terkompresi tidak (dipakai)",
+      65,
+      "0x04 || x || y"
+    ],
+    [
+      "Kunci publik SPKI DER",
+      91,
+      ""
+    ],
+    [
+      "Kunci publik PEM (karakter)",
+      178,
+      ""
+    ],
+    [
+      "Blok tanda tangan di akhir berkas (B)",
+      693,
+      "metadata + kunci publik + 2 tanda tangan + hash"
+    ],
+    [
+      "Payload QR-Code (B)",
+      320,
+      "versi 13, 69x69 modul, koreksi kesalahan M"
+    ],
+    [
+      "PDF asli (3 halaman)",
+      7205,
+      ""
+    ],
+    [
+      "PDF setelah halaman QR dan 1 blok",
+      22281,
+      "tambahan 15076 B"
+    ]
+  ],
+  "timing": {
+    "sigOnly": {
+      "n": 200,
+      "mean": 0.022355998158454893,
+      "sd": 0.0021940017729542654,
+      "min": 0.02090001106262207,
+      "max": 0.03600001335144043
+    },
+    "verOnly": {
+      "n": 200,
+      "mean": 0.05437649965286255,
+      "sd": 0.002704034123181989,
+      "min": 0.05200004577636719,
+      "max": 0.07410001754760742
+    },
+    "hashRows": [
+      [
+        "1 KB",
+        0.0021,
+        14.9255,
+        0.7935,
+        0.1796,
+        0.0358,
+        40
+      ],
+      [
+        "100 KB",
+        0.0489,
+        15.1379,
+        1.0969,
+        0.2076,
+        0.0143,
+        40
+      ],
+      [
+        "1 MB",
+        0.5034,
+        15.8538,
+        1.1053,
+        0.6644,
+        0.0397,
+        40
+      ],
+      [
+        "10 MB",
+        4.882,
+        22.4869,
+        1.5546,
+        5.2908,
+        0.2549,
+        30
+      ]
+    ],
+    "pdfRows": [
+      [
+        "PDF 1 halaman (2975 B)",
+        35.359,
+        9.3171,
+        0.1804,
+        0.0182
+      ],
+      [
+        "PDF 5 halaman (11434 B)",
+        31.7578,
+        2.1623,
+        0.172,
+        0.0201
+      ],
+      [
+        "PDF 20 halaman (43181 B)",
+        42.189,
+        6.5488,
+        0.1948,
+        0.0381
+      ]
+    ]
+  },
+  "tamper": [
+    [
+      "PDF 1 halaman",
+      17991,
+      "400 dari 400",
+      "693 dari 693",
+      "3 dari 3",
+      "sah"
+    ],
+    [
+      "PDF 5 halaman",
+      26349,
+      "400 dari 400",
+      "693 dari 693",
+      "3 dari 3",
+      "sah"
+    ],
+    [
+      "PDF 20 halaman",
+      58163,
+      "400 dari 400",
+      "693 dari 693",
+      "3 dari 3",
+      "sah"
+    ],
+    [
+      "teks 2 KB",
+      2741,
+      "400 dari 400",
+      "693 dari 693",
+      "3 dari 3",
+      "sah"
+    ],
+    [
+      "teks pendek",
+      711,
+      "18 dari 18",
+      "693 dari 693",
+      "3 dari 3",
+      "sah"
+    ]
+  ],
+  "forged": [
+    [
+      "nama diubah",
+      "ditolak"
+    ],
+    [
+      "jabatan diubah",
+      "ditolak"
+    ],
+    [
+      "institusi diubah",
+      "ditolak"
+    ],
+    [
+      "waktu diubah",
+      "ditolak"
+    ],
+    [
+      "ID dokumen diubah",
+      "ditolak"
+    ],
+    [
+      "sidik jari diubah",
+      "ditolak"
+    ],
+    [
+      "tanda tangan di QR: 1 bit dibalik pada tiap byte (64 uji)",
+      "64 dari 64 ditolak"
+    ],
+    [
+      "QR penandatangan lain ditempel",
+      "ditolak"
+    ],
+    [
+      "QR sah milik dokumen lain (penandatangan sama)",
+      "ditolak (ID dokumen tidak cocok)"
+    ],
+    [
+      "teks QR bukan payload",
+      "ditolak"
+    ],
+    [
+      "QR asli",
+      "diterima"
+    ]
+  ],
+  "multi": [
+    [
+      1,
+      20151,
+      0,
+      0.1834,
+      "1 dari 1 sah",
+      "1 dari 1 ditolak"
+    ],
+    [
+      2,
+      20831,
+      680,
+      0.3123,
+      "2 dari 2 sah",
+      "2 dari 2 ditolak"
+    ],
+    [
+      3,
+      21511,
+      1360,
+      0.496,
+      "3 dari 3 sah",
+      "3 dari 3 ditolak"
+    ],
+    [
+      4,
+      22191,
+      2040,
+      0.6245,
+      "4 dari 4 sah",
+      "4 dari 4 ditolak"
+    ],
+    [
+      5,
+      22871,
+      2720,
+      0.8771,
+      "5 dari 5 sah",
+      "5 dari 5 ditolak"
+    ]
+  ],
+  "keygen": {
+    "gen": {
+      "n": 100,
+      "mean": 0.02892200469970703,
+      "sd": 0.05304137005735755,
+      "min": 0.019999980926513672,
+      "max": 0.5532000064849854
+    },
+    "sealT": {
+      "n": 30,
+      "mean": 49.82809333006541,
+      "sd": 0.832420042666015,
+      "min": 48.656400084495544,
+      "max": 52.08590006828308
+    },
+    "openT": {
+      "n": 30,
+      "mean": 50.01422332525253,
+      "sd": 0.9217332921408539,
+      "min": 48.53100001811981,
+      "max": 51.958199977874756
+    }
+  }
+}

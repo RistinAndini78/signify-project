@@ -45,10 +45,19 @@ export class BlobKeystore {
     const raw = rawPublic(publicKey), fp = fingerprint(raw), id = randomBytes(8).toString('hex');
     const record: Record = { v: 1, id, name, title, org, created: new Date().toISOString(), fp, publicKey: b64u(raw), sealed: sealPrivateKey(privateKey, fp, passphrase) };
     try {
-      await put(this.path(id), JSON.stringify(record, null, 2), { access: 'private', addRandomSuffix: false, contentType: 'application/json' });
-    } catch {
-      throw new VaultError('unable to write key storage; check BLOB_READ_WRITE_TOKEN');
-    }
+  await put(this.path(id), JSON.stringify(record, null, 2), {
+    access: 'private',
+    addRandomSuffix: false,
+    contentType: 'application/json'
+  });
+} catch (error) {
+  console.error('BLOB PUT ERROR:', error);
+  throw new VaultError(
+    error instanceof Error
+      ? `unable to write key storage: ${error.message}`
+      : 'unable to write key storage'
+  );
+}
     return { ...this.publicInfo(record), publicPem: publicKey.export({ format: 'pem', type: 'spki' }).toString() };
   }
 

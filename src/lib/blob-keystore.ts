@@ -7,6 +7,10 @@ import { MIN_PASSPHRASE, PublicInfo, VaultError } from './sig/keystore';
 interface Record extends PublicInfo { v: 1; sealed: Sealed }
 
 const PREFIX = 'keystore/';
+
+const PRIVATE_BLOB_STORE_ID = process.env.PRIVATE_BLOB_STORE_ID;
+const PRIVATE_BLOB_READ_WRITE_TOKEN = process.env.PRIVATE_BLOB_READ_WRITE_TOKEN;
+
 const ID_RE = /^[0-9a-f]{16}$/;
 const clean = (label: string, value: unknown, max = 100): string => {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -23,7 +27,11 @@ export class BlobKeystore {
 
   private async read(id: string): Promise<Record> {
     try {
-      const blob = await get(this.path(id), { access: 'private' });
+      const blob = await get(this.path(id), {
+  access: 'private',
+  storeId: PRIVATE_BLOB_STORE_ID,
+  token: PRIVATE_BLOB_READ_WRITE_TOKEN
+});
       if (!blob) throw new VaultError('unknown key');
       return JSON.parse(Buffer.from(await new Response(blob.stream).arrayBuffer()).toString('utf8')) as Record;
     } catch (error) {
@@ -46,10 +54,12 @@ export class BlobKeystore {
     const record: Record = { v: 1, id, name, title, org, created: new Date().toISOString(), fp, publicKey: b64u(raw), sealed: sealPrivateKey(privateKey, fp, passphrase) };
     try {
   await put(this.path(id), JSON.stringify(record, null, 2), {
-    access: 'private',
-    addRandomSuffix: false,
-    contentType: 'application/json'
-  });
+  access: 'private',
+  storeId: PRIVATE_BLOB_STORE_ID,
+  token: PRIVATE_BLOB_READ_WRITE_TOKEN,
+  addRandomSuffix: false,
+  contentType: 'application/json'
+});
 } catch (error) {
   console.error('BLOB PUT ERROR:', error);
   throw new VaultError(
@@ -61,18 +71,30 @@ export class BlobKeystore {
     return { ...this.publicInfo(record), publicPem: publicKey.export({ format: 'pem', type: 'spki' }).toString() };
   }
 
-  async list(): Promise<PublicInfo[]> {
-    try {
-      const result = await list({ prefix: PREFIX });
-      const records = await Promise.all(result.blobs.filter((blob) => /[0-9a-f]{16}\.json$/.test(blob.pathname)).map(async (blob) => {
-        const keyId = blob.pathname.slice(PREFIX.length, -'.json'.length);
-        return this.publicInfo(await this.read(keyId));
-      }));
-      return records.sort((a, b) => a.created.localeCompare(b.created));
-    } catch {
-      throw new VaultError('unable to read key storage; check BLOB_READ_WRITE_TOKEN');
-    }
+ async list(): Promise<PublicInfo[]> {
+  try {
+    const result = await list({
+      prefix: PREFIX,
+      storeId: PRIVATE_BLOB_STORE_ID,
+      token: PRIVATE_BLOB_READ_WRITE_TOKEN
+    });
+
+    const records = await Promise.all(
+      result.blobs
+        .filter((blob) => /[0-9a-f]{16}\.json$/.test(blob.pathname))
+        .map(async (blob) => {
+          const keyId = blob.pathname.slice(PREFIX.length, -'.json'.length);
+          return this.publicInfo(await this.read(keyId));
+        })
+    );
+
+    return records.sort((a, b) => a.created.localeCompare(b.created));
+  } catch {
+    throw new VaultError(
+      'unable to read key storage; check PRIVATE_BLOB_READ_WRITE_TOKEN'
+    );
   }
+}
 
   async get(id: string): Promise<PublicInfo> {
     return this.publicInfo(await this.read(id));

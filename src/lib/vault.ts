@@ -4,9 +4,9 @@ import { BlobKeystore } from './blob-keystore';
 import { Keystore } from './sig/keystore';
 
 /** Key vault directory: KEYSTORE_DIR, or ./data/keystore (git-ignored). Holds public data and password-sealed private keys only. */
-export const keystore = (): Keystore | BlobKeystore => process.env.BLOB_READ_WRITE_TOKEN
-	? new BlobKeystore()
-	: new Keystore(process.env.KEYSTORE_DIR ?? join(process.cwd(), 'data', 'keystore'));
+export const keystore = (): Keystore | BlobKeystore => process.env.PRIVATE_BLOB_READ_WRITE_TOKEN
+    ? new BlobKeystore()
+    : new Keystore(process.env.KEYSTORE_DIR ?? join(process.cwd(), 'data', 'keystore'));
 
 /** Public address used in QR links. Set PUBLIC_URL when a specific LAN address is required. */
 export const originOf = (req: Request): string => {

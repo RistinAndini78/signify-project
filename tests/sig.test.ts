@@ -58,16 +58,17 @@ describe('keys', () => {
 
 describe('keystore', () => {
   const store = new Keystore(dir);
-  it('creates keys, lists only public data, unlocks with the passphrase, and refuses weak input', () => {
-    const info = store.create({ name: 'Dewi', title: 'Dosen', org: 'UNSIL', passphrase: 'kata-sandi-panjang' });
-    expect(store.list().map((k) => k.id)).toContain(info.id);
-    expect(JSON.stringify(store.list())).not.toMatch(/sealed|ct|PRIVATE/);
-    expect(store.unlock(info.id, 'kata-sandi-panjang').info.fp).toBe(info.fp);
-    expect(() => store.unlock(info.id, 'salah-salah-salah')).toThrow(PassphraseError);
-    expect(() => store.create({ name: 'A', title: 'B', org: 'C', passphrase: 'pendek' })).toThrow(VaultError);
-    expect(() => store.create({ name: '', title: 'B', org: 'C', passphrase: 'kata-sandi-panjang' })).toThrow(VaultError);
-    expect(() => store.unlock('../../etc/passwd', 'x')).toThrow(VaultError);
-    expect(store.byFingerprint(info.fp)?.name).toBe('Dewi');
+  it('creates keys, lists only public data, unlocks with the passphrase, and refuses weak input', async () => {
+    const info = await store.create({ name: 'Dewi', title: 'Dosen', org: 'UNSIL', passphrase: 'kata-sandi-panjang' });
+    const all = await store.list();
+    expect(all.map((k) => k.id)).toContain(info.id);
+    expect(JSON.stringify(all)).not.toMatch(/sealed|ct|PRIVATE/);
+    expect((await store.unlock(info.id, 'kata-sandi-panjang')).info.fp).toBe(info.fp);
+    await expect(store.unlock(info.id, 'salah-salah-salah')).rejects.toThrow(PassphraseError);
+    await expect(store.create({ name: 'A', title: 'B', org: 'C', passphrase: 'pendek' })).rejects.toThrow(VaultError);
+    await expect(store.create({ name: '', title: 'B', org: 'C', passphrase: 'kata-sandi-panjang' })).rejects.toThrow(VaultError);
+    await expect(store.unlock('../../etc/passwd', 'x')).rejects.toThrow(VaultError);
+    expect((await store.byFingerprint(info.fp))?.name).toBe('Dewi');
   });
 });
 
@@ -208,6 +209,20 @@ describe('several signers', () => {
     await expect(signDocument(one.file, alice, ORIGIN)).rejects.toThrow(SignError);
     const t = Buffer.from(one.file); t[2] ^= 1;
     await expect(signDocument(t, bob, ORIGIN)).rejects.toThrow(SignError); // a changed document cannot be signed further
+  });
+});
+
+describe('storage backend selection', () => {
+  it('prefers Vercel Blob when the write token is configured', () => {
+    const prev = process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_READ_WRITE_TOKEN = 'demo-token';
+    try {
+      const store = new Keystore('unused-local-dir');
+      expect(store.storageKind()).toBe('blob');
+    } finally {
+      if (prev === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
+      else process.env.BLOB_READ_WRITE_TOKEN = prev;
+    }
   });
 });
 

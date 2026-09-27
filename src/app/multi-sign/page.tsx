@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 interface Key { id: string; name: string; title: string; org: string; fp: string }
-interface Signed { file: string; bytes: number; docId: string; signers: number; qr: { png: string; version: number; modules: number } }
+interface Signed { file: string; bytes: number; docId: string; signers: number; qr: { png: string; version: number; modules: number; secondary?: { png: string; signer: { name: string; title: string; org: string; time: string } } } }
 interface SignerRow { name: string; title: string; org: string; fp: string; }
 
 const fromB64 = (value: string) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
@@ -19,6 +19,9 @@ export default function MultiSignPage() {
   const [keyId, setKeyId] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
+  const [firstKeyId, setFirstKeyId] = useState('');
+  const [firstPassphrase, setFirstPassphrase] = useState('');
   const [signed, setSigned] = useState<Signed | null>(null);
   const [rows, setRows] = useState<SignerRow[]>([]);
   const [error, setError] = useState('');
@@ -40,6 +43,7 @@ export default function MultiSignPage() {
       return;
     }
     setFile(next);
+    setOriginalFile(next);
     setSigned(null);
     setRows([]);
   }
@@ -54,13 +58,18 @@ export default function MultiSignPage() {
     const form = new FormData();
     form.set('keyId', keyId);
     form.set('passphrase', passphrase);
-    form.set('file', file);
+    form.set('file', signed && originalFile ? originalFile : file);
+    if (signed && originalFile && firstKeyId && firstPassphrase) {
+      form.set('firstKeyId', firstKeyId);
+      form.set('firstPassphrase', firstPassphrase);
+    }
     try {
       const response = await fetch('/api/sign', { method: 'POST', body: form });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Tanda tangan gagal.');
       const signer = keys.find((key) => key.id === keyId);
       setRows((current) => [...current, signer ? { name: signer.name, title: signer.title, org: signer.org, fp: signer.fp } : { name: 'Signer', title: '-', org: '-', fp: '-' }]);
+      if (!signed) { setFirstKeyId(keyId); setFirstPassphrase(passphrase); }
       setSigned(data);
       setFile(new File([fromB64(data.file)], `signed-${data.signers}.pdf`, { type: 'application/pdf' }));
       setPassphrase('');
@@ -106,7 +115,7 @@ export default function MultiSignPage() {
           </aside>
         </div>
 
-        {signed && <section className="workflow-card multi-result"><div><p className="card-kicker"><span className="card-number">3</span> Hasil terbaru</p><h2>{signed.signers} penandatangan tersimpan</h2><p className="card-intro">Dokumen sudah memiliki rantai signature dan dapat diteruskan ke signer berikutnya.</p><button onClick={() => download(downloadName, fromB64(signed.file))}>Unduh PDF bertanda tangan</button></div><img className="qr-image" alt="QR-Code dokumen" src={`data:image/png;base64,${signed.qr.png}`} /></section>}
+        {signed && <section className="workflow-card multi-result"><div><p className="card-kicker"><span className="card-number">3</span> Hasil terbaru</p><h2>{signed.signers} penandatangan tersimpan</h2><p className="card-intro">Dokumen sudah memiliki rantai signature dan dapat diteruskan ke signer berikutnya.</p><button onClick={() => download(downloadName, fromB64(signed.file))}>Unduh PDF bertanda tangan</button></div><div className="qr-pair"><div><img className="qr-image" alt="QR-Code signer terbaru" src={`data:image/png;base64,${signed.qr.png}`} /><small>Signer terbaru</small></div>{signed.qr.secondary && <div><img className="qr-image qr-image-mini" alt="QR-Code signer sebelumnya" src={`data:image/png;base64,${signed.qr.secondary.png}`} /><small>{signed.qr.secondary.signer.name}</small></div>}</div></section>}
         <p className="footer-note"><a href="/">Kembali ke tanda tangan dan verifikasi</a></p>
       </div>
     </main>

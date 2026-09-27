@@ -11,7 +11,7 @@ import { PassphraseError, generateKeyPair, openPrivateKey, parsePublicKey, rawPu
 import { Keystore, VaultError } from '../src/lib/sig/keystore';
 import { isPdf } from '../src/lib/sig/pdfstamp';
 import { parseQr, qrText } from '../src/lib/sig/qr';
-import { Signer, SignError, signDocument, verifyDocument } from '../src/lib/sig/service';
+import { Signer, SignError, signDocument, signDocumentChain, verifyDocument } from '../src/lib/sig/service';
 
 const ORIGIN = 'http://localhost:3000';
 const dir = mkdtempSync(join(tmpdir(), 'kripto-vault-'));
@@ -182,6 +182,15 @@ describe('wrong key and forged data', () => {
 });
 
 describe('several signers', () => {
+  it('builds the final PDF with two QR codes before creating both valid signature blocks', async () => {
+    const result = await signDocumentChain(await pdf(1), [alice, bob], ORIGIN);
+    const report = verifyDocument(result.file);
+    expect(report.valid).toBe(true);
+    expect(report.signers.map((signer) => signer.name)).toEqual(['Alice Rahma', 'Bob Santoso']);
+    expect(result.qr.secondary?.signer.name).toBe('Alice Rahma');
+    expect((await PDFDocument.load(result.file)).getPageCount()).toBe(2);
+  });
+
   it('three signers sign in turn; all are valid, share one document id, and the QR page is added once', async () => {
     const one = await signDocument(await pdf(2), alice, ORIGIN);
     const two = await signDocument(one.file, bob, ORIGIN);
@@ -191,6 +200,15 @@ describe('several signers', () => {
     expect(v.signers.map((s) => s.name)).toEqual(['Alice Rahma', 'Bob Santoso', 'Carol Dewi']);
     expect(new Set(v.signers.map((s) => s.docId)).size).toBe(1);
     expect((await PDFDocument.load(three.file)).getPageCount()).toBe(3);
+  });
+
+  it('keeps the previous signer QR in the multi-sign result so the final page can show both QR codes', async () => {
+    const one = await signDocument(await pdf(1), alice, ORIGIN);
+    const two = await signDocument(one.file, bob, ORIGIN);
+    expect(two.qr.secondary).toMatchObject({
+      signer: { name: 'Alice Rahma', title: 'Dekan', org: 'Fakultas Teknik UNSIL' },
+      ok: true,
+    });
   });
 
   it('changing the document breaks every signature; removing the last signer leaves the earlier ones valid', async () => {

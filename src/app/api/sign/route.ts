@@ -2,7 +2,7 @@ import { MAX_UPLOAD, allow, clientKey, json, tooLarge } from '../../../lib/http'
 import { PassphraseError, publicFromRaw } from '../../../lib/sig/keys';
 import { VaultError } from '../../../lib/sig/keystore';
 import { StampError } from '../../../lib/sig/pdfstamp';
-import { SignError, signDocument } from '../../../lib/sig/service';
+import { SignError, signDocument, signDocumentChain } from '../../../lib/sig/service';
 import { fromB64u } from '../../../lib/sig/encoding';
 import { keystore, originOf } from '../../../lib/vault';
 
@@ -20,12 +20,32 @@ export async function POST(req: Request) {
   // wrong passphrases are limited per client and key
   if (!allow(`unlock:${clientKey(req)}:${keyId}`, 40)) return json({ error: 'too many attempts, try again in a minute' }, 429);
   try {
+    const firstKeyId = String(form?.get('firstKeyId') ?? '');
+    const firstPassphrase = String(form?.get('firstPassphrase') ?? '');
+    if (firstKeyId || firstPassphrase) {
+      if (!firstKeyId || !firstPassphrase || firstKeyId === keyId) return json({ error: 'dua signer berbeda dan password keduanya diperlukan' }, 400);
+      const first = await keystore().unlock(firstKeyId, firstPassphrase);
+      const firstPublicKey = publicFromRaw(fromB64u(first.info.publicKey));
+      const current = await keystore().unlock(keyId, passphrase);
+      const currentPublicKey = publicFromRaw(fromB64u(current.info.publicKey));
+      const r = await signDocumentChain(Buffer.from(await file.arrayBuffer()), [
+        { privateKey: first.privateKey, publicKey: firstPublicKey, name: first.info.name, title: first.info.title, org: first.info.org },
+        { privateKey: current.privateKey, publicKey: currentPublicKey, name: current.info.name, title: current.info.title, org: current.info.org },
+      ], originOf(req));
+      return json({
+        file: r.file.toString('base64'), bytes: r.file.length, docId: r.docId, signers: r.signers,
+        qr: { png: r.qr.png.toString('base64'), text: r.qr.text, modules: r.qr.modules, version: r.qr.version, bytes: r.qr.bytes, secondary: r.qr.secondary ? { ...r.qr.secondary, png: r.qr.secondary.png.toString('base64') } : undefined },
+      });
+    }
     const { info, privateKey } = await keystore().unlock(keyId, passphrase);
     const publicKey = publicFromRaw(fromB64u(info.publicKey));
     const r = await signDocument(Buffer.from(await file.arrayBuffer()), { privateKey, publicKey, name: info.name, title: info.title, org: info.org }, originOf(req));
     return json({
       file: r.file.toString('base64'), bytes: r.file.length, docId: r.docId, signers: r.signers,
-      qr: { png: r.qr.png.toString('base64'), text: r.qr.text, modules: r.qr.modules, version: r.qr.version, bytes: r.qr.bytes },
+      qr: {
+        png: r.qr.png.toString('base64'), text: r.qr.text, modules: r.qr.modules, version: r.qr.version, bytes: r.qr.bytes,
+        secondary: r.qr.secondary ? { ...r.qr.secondary, png: r.qr.secondary.png.toString('base64') } : undefined,
+      },
     });
   } catch (e) {
     if (e instanceof PassphraseError) return json({ error: e.message }, 401);

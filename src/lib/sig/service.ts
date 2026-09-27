@@ -10,7 +10,48 @@ export class SignError extends Error {}
 
 export interface Signer { privateKey: KeyObject; publicKey: KeyObject; name: string; title: string; org: string }
 
-export interface SignResult { file: Buffer; docId: string; block: Block; signers: number; qr: { png: Buffer; text: string; modules: number; version: number; bytes: number } }
+export interface SignResult {
+  file: Buffer;
+  docId: string;
+  block: Block;
+  signers: number;
+  qr: {
+    png: Buffer;
+    text: string;
+    modules: number;
+    version: number;
+    bytes: number;
+    secondary?: { signer: { name: string; title: string; org: string; time: string }; ok: true; png: Buffer; text: string };
+  };
+}
+
+export async function signDocumentChain(file: Buffer, signers: Signer[], origin: string, now: Date = new Date()): Promise<SignResult> {
+  if (signers.length !== 2 || !isPdf(file) || parseBlocks(file).length > 0) throw new SignError('finalization requires an unsigned PDF and exactly two signers');
+  const docId = b64u(randomBytes(12));
+  const entries = await Promise.all(signers.map(async (signer, index) => {
+    const pubRaw = rawPublic(signer.publicKey), fp = fingerprint(pubRaw);
+    const meta: Meta = { name: signer.name, title: signer.title, org: signer.org, time: new Date(now.getTime() + index).toISOString() };
+    const qs = signMessage(signer.privateKey, qrMessage(docId, fp, meta));
+    const text = qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin);
+    return { signer, pubRaw, fp, meta, qs, text, qr: await qrPng(text) };
+  }));
+  let body = await addQrPage(file, {
+    qrPng: entries[0].qr.png,
+    title: 'Halaman Pengesahan Tanda Tangan Digital',
+    url: entries[0].text,
+    lines: [`Ditandatangani oleh: ${entries[0].meta.name}`, `Jabatan: ${entries[0].meta.title}`, `Institusi: ${entries[0].meta.org}`, `Waktu: ${entries[0].meta.time}`, `ID dokumen: ${docId}`, `Sidik jari kunci publik: ${entries[0].fp}`, 'Algoritma: ECDSA P-256 dengan SHA-256'],
+    secondary: { qrPng: entries[1].qr.png, title: `Signer kedua: ${entries[1].meta.name}`, lines: [`Jabatan: ${entries[1].meta.title}`, `Institusi: ${entries[1].meta.org}`, `Waktu: ${entries[1].meta.time}`, `Sidik jari: ${entries[1].fp}`] },
+  });
+  let lastBlock: Block | undefined;
+  for (const entry of entries) {
+    const h = sha256hex(body);
+    const sig = signMessage(entry.signer.privateKey, docMessage(h, docId, entry.fp, entry.meta, b64u(entry.qs)));
+    lastBlock = { v: 1, id: docId, alg: 'ES256', h, n: entry.meta.name, t: entry.meta.title, o: entry.meta.org, d: entry.meta.time, pk: b64u(entry.pubRaw), sig: b64u(sig), qs: b64u(entry.qs) };
+    body = Buffer.concat([body, encodeBlock(lastBlock)]);
+  }
+  const latest = entries[1];
+  return { file: body, docId, block: lastBlock!, signers: 2, qr: { png: latest.qr.png, text: latest.text, modules: latest.qr.modules, version: latest.qr.version, bytes: latest.qr.bytes, secondary: { signer: { name: entries[0].meta.name, title: entries[0].meta.title, org: entries[0].meta.org, time: entries[0].meta.time }, ok: true, png: entries[0].qr.png, text: entries[0].text } } };
+}
 
 export interface SignerReport {
   index: number; name: string; title: string; org: string; time: string; fp: string; docId: string;
@@ -48,16 +89,28 @@ export async function signDocument(file: Buffer, signer: Signer, origin: string,
   const meta: Meta = { name: signer.name, title: signer.title, org: signer.org, time: now.toISOString() };
   const qs = signMessage(signer.privateKey, qrMessage(docId, fp, meta));
   const q = await qrPng(qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin));
+  let secondary: SignResult['qr']['secondary'] | undefined;
+  if (existing.length > 0 && isPdf(file)) {
+    const previous = existing[existing.length - 1].block;
+    const previousMeta = metaOf(previous);
+    const previousFp = fingerprint(fromB64u(previous.pk));
+    const previousText = qrText({ id: previous.id, fp: previousFp, meta: previousMeta, sig: previous.qs }, origin);
+    const previousQr = await qrPng(previousText);
+    secondary = { signer: { name: previousMeta.name, title: previousMeta.title, org: previousMeta.org, time: previousMeta.time }, ok: true, png: previousQr.png, text: previousText };
+  }
   if (existing.length === 0 && isPdf(file)) {
     body = await addQrPage(file, {
-      qrPng: q.png, title: 'Halaman Pengesahan Tanda Tangan Digital', url: qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin),
+      qrPng: q.png,
+      title: 'Halaman Pengesahan Tanda Tangan Digital',
+      url: qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin),
       lines: [`Ditandatangani oleh: ${meta.name}`, `Jabatan: ${meta.title}`, `Institusi: ${meta.org}`, `Waktu: ${meta.time}`, `ID dokumen: ${docId}`, `Sidik jari kunci publik: ${fp}`, 'Algoritma: ECDSA P-256 dengan SHA-256'],
     });
   }
+
   const h = sha256hex(body);
   const sig = signMessage(signer.privateKey, docMessage(h, docId, fp, meta, b64u(qs)));
   const block: Block = { v: 1, id: docId, alg: 'ES256', h, n: meta.name, t: meta.title, o: meta.org, d: meta.time, pk: b64u(pubRaw), sig: b64u(sig), qs: b64u(qs) };
-  return { file: Buffer.concat([body, encodeBlock(block)]), docId, block, signers: existing.length + 1, qr: { png: q.png, text: qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin), modules: q.modules, version: q.version, bytes: q.bytes } };
+  return { file: Buffer.concat([body, encodeBlock(block)]), docId, block, signers: existing.length + 1, qr: { png: q.png, text: qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin), modules: q.modules, version: q.version, bytes: q.bytes, secondary } };
 }
 
 function verifyBlock(file: Buffer, loc: Located, index: number, opts: VerifyOptions): SignerReport {

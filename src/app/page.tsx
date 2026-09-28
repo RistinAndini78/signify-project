@@ -238,7 +238,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <div className="app-container">
-        <header className="key-hero">
+        <header className="hero">
           <p className="eyebrow">Signify · Tanda tangan digital</p>
           <h1>Buat pasangan kunci ECDSA P-256</h1>
           <p>Private key langsung dienkripsi AES-256-GCM dengan key yang diturunkan dari passphrase via scrypt, lalu diunduh sebagai file .dsk. Public key (SPKI/PEM) bebas dibagikan kepada siapa pun yang perlu memverifikasi tanda tangan Anda.</p>
@@ -247,6 +247,7 @@ export default function Home() {
 
         <div className="key-grid">
           <section className="paper-panel">
+            <p className="card-kicker"><span className="card-number">1</span> buat Pasangan Kunci </p>
             <h2>Passphrase</h2>
             <p className="card-intro">Passphrase dikirim melalui HTTPS hanya untuk derivasi kunci AES. Passphrase tidak disimpan; private key terenkripsi diunduh sebagai file .dsk.</p>
             <div className="dotted-rule" />
@@ -269,9 +270,12 @@ export default function Home() {
         </div>
 
         <section className="sign-workspace">
-          <div className="section-heading"><p className="eyebrow">Alur penandatanganan</p><h2>Tandatangani berkas PDF</h2><p>Gunakan file .dsk yang Anda simpan saat membuat pasangan kunci.</p></div>
+
+          <div className="section-heading">
           <div className="sign-grid">
             <section className="paper-panel sign-form-panel">
+            <p className="card-kicker"><span className="card-number">2</span> Alur Penandatanganan</p>
+            <h2>Tandatangani berkas PDF</h2><p>Gunakan file .dsk yang Anda simpan saat membuat pasangan kunci.</p>
               <div className="field"><label htmlFor="sign-file">1. BERKAS PDF</label><input id="sign-file" type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setSigned(null); }} /></div>
               {file && <p className="selected-file">Berkas dipilih: <b>{file.name}</b></p>}
               <div className="field"><label htmlFor="sign-dsk">2. PRIVATE KEY (.DSK)</label><input id="sign-dsk" type="file" accept=".dsk,application/json" onChange={(e) => { setDskFile(e.target.files?.[0] ?? null); setSigned(null); }} /></div>
@@ -283,6 +287,7 @@ export default function Home() {
               <button className="primary-wide" onClick={sign} disabled={signBusy}>{signBusy ? 'Menandatangani...' : 'Tandatangani Berkas'}</button>
               {signErr && <p className="error" role="alert">{signErr}</p>}
             </section>
+          
             <section className="paper-panel sign-result-panel">
               <h2>Dokumen bertanda tangan</h2>
               <p className="card-intro">Hasil tanda tangan digital dan QR verifikasi akan tersedia di sini.</p>
@@ -294,6 +299,7 @@ export default function Home() {
                 <button className="download-button" onClick={() => save(signedName, bytesOf(signed.file))}>Unduh PDF bertanda tangan</button>
               </div> : <p className="empty-key-result">Lengkapi berkas dan identitas, lalu pilih tombol tandatangani berkas.</p>}
             </section>
+            </div>
           </div>
         </section>
 

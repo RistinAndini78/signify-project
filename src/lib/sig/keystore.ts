@@ -1,9 +1,9 @@
-import { KeyObject, randomBytes } from 'node:crypto';
+import { KeyObject, createPublicKey, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { put, list } from '@vercel/blob';
-import { b64u } from './encoding';
-import { Sealed, fingerprint, generateKeyPair, openPrivateKey, rawPublic, sealPrivateKey } from './keys';
+import { b64u, fromB64u } from './encoding';
+import { PassphraseError, Sealed, fingerprint, generateKeyPair, openPrivateKey, publicFromRaw, rawPublic, sealPrivateKey } from './keys';
 
 export class VaultError extends Error {}
 
@@ -12,13 +12,63 @@ interface Record extends PublicInfo { v: 1; sealed: Sealed }
 
 const ID_RE = /^[0-9a-f]{16}$/;
 const BLOB_PREFIX = 'keystore';
-export const MIN_PASSPHRASE = 10;
+export const MIN_PASSPHRASE = 8;
 const clean = (label: string, v: unknown, max = 100): string => {
   const s = typeof v === 'string' ? v.trim() : '';
   // eslint-disable-next-line no-control-regex
   if (!s || s.length > max || /[\u0000-\u001f\u007f]/.test(s)) throw new VaultError(`${label} must be 1 to ${max} characters without control characters`);
   return s;
 };
+
+export interface PortableKey { v: 1; alg: 'ES256'; fp: string; publicKey: string; sealed: Sealed }
+
+export function cleanIdentity(input: { name: unknown; title: unknown; org: unknown }): { name: string; title: string; org: string } {
+  return { name: clean('name', input.name), title: clean('title', input.title), org: clean('institution', input.org) };
+}
+
+export function createPortableKey(passphrase: unknown): { key: PortableKey; publicPem: string } {
+  const pass = typeof passphrase === 'string' ? passphrase : '';
+  if (pass.length < MIN_PASSPHRASE) throw new VaultError(`passphrase must be at least ${MIN_PASSPHRASE} characters`);
+  const { privateKey, publicKey } = generateKeyPair();
+  const raw = rawPublic(publicKey), fp = fingerprint(raw);
+  return {
+    key: { v: 1, alg: 'ES256', fp, publicKey: b64u(raw), sealed: sealPrivateKey(privateKey, fp, pass) },
+    publicPem: publicKey.export({ format: 'pem', type: 'spki' }).toString(),
+  };
+}
+
+export function unlockPortableKey(value: unknown, passphrase: string): { privateKey: KeyObject; publicKey: KeyObject; fp: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new VaultError('format file .dsk tidak valid');
+  const source = value as { [key: string]: unknown };
+  const sealedValue = source.sealed as { [key: string]: unknown } | null;
+  if (source.v !== 1 || source.alg !== 'ES256' || typeof source.fp !== 'string' || !/^[0-9a-f]{16}$/.test(source.fp)
+    || typeof source.publicKey !== 'string' || !sealedValue || typeof sealedValue !== 'object'
+    || typeof sealedValue.salt !== 'string' || typeof sealedValue.nonce !== 'string'
+    || typeof sealedValue.ct !== 'string' || typeof sealedValue.tag !== 'string') {
+    throw new VaultError('format file .dsk tidak valid');
+  }
+
+  let raw: Buffer, salt: Buffer, nonce: Buffer, ct: Buffer, tag: Buffer;
+  try {
+    raw = fromB64u(source.publicKey);
+    salt = fromB64u(sealedValue.salt);
+    nonce = fromB64u(sealedValue.nonce);
+    ct = fromB64u(sealedValue.ct);
+    tag = fromB64u(sealedValue.tag);
+  } catch {
+    throw new VaultError('format file .dsk tidak valid');
+  }
+  if (raw.length !== 65 || salt.length !== 16 || nonce.length !== 12 || tag.length !== 16 || ct.length > 4096 || fingerprint(raw) !== source.fp) {
+    throw new VaultError('file .dsk rusak atau tidak cocok');
+  }
+
+  let publicKey: KeyObject;
+  try { publicKey = publicFromRaw(raw); } catch { throw new VaultError('kunci publik dalam file .dsk tidak valid'); }
+  const sealed: Sealed = { salt: sealedValue.salt, nonce: sealedValue.nonce, ct: sealedValue.ct, tag: sealedValue.tag };
+  const privateKey = openPrivateKey(sealed, source.fp, passphrase);
+  if (!rawPublic(createPublicKey(privateKey)).equals(raw)) throw new PassphraseError();
+  return { privateKey, publicKey, fp: source.fp };
+}
 
 /** Directory of key files: name, title, institution, public key, and the private key sealed with the passphrase. */
 export class Keystore {

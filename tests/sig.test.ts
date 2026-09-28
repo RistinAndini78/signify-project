@@ -8,10 +8,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { b64u, fromB64u } from '../src/lib/sig/encoding';
 import { encodeBlock, parseBlocks } from '../src/lib/sig/format';
 import { PassphraseError, generateKeyPair, openPrivateKey, parsePublicKey, rawPublic, sealPrivateKey, signMessage, verifyMessage } from '../src/lib/sig/keys';
-import { Keystore, VaultError } from '../src/lib/sig/keystore';
+import { createPortableKey, Keystore, unlockPortableKey, VaultError } from '../src/lib/sig/keystore';
 import { isPdf } from '../src/lib/sig/pdfstamp';
 import { parseQr, qrText } from '../src/lib/sig/qr';
 import { Signer, SignError, signDocument, signDocumentChain, verifyDocument } from '../src/lib/sig/service';
+import { POST as exportKey } from '../src/app/api/keys/export/route';
+import { POST as signRequest } from '../src/app/api/sign/route';
+import { POST as verifyRequest } from '../src/app/api/verify/route';
 
 const ORIGIN = 'http://localhost:3000';
 const dir = mkdtempSync(join(tmpdir(), 'kripto-vault-'));
@@ -47,6 +50,20 @@ describe('keys', () => {
     expect(JSON.stringify(s)).not.toContain('PRIVATE');
   });
 
+  it('exports a portable encrypted key that can be unlocked without storing it', () => {
+    const generated = createPortableKey('passphrase-kuat');
+    const unlocked = unlockPortableKey(generated.key, 'passphrase-kuat');
+    const signature = signMessage(unlocked.privateKey, 'uji portable');
+    expect(verifyMessage(unlocked.publicKey, 'uji portable', signature)).toBe(true);
+    expect(generated.key.fp).toBe(unlocked.fp);
+    expect(generated.key).not.toHaveProperty('name');
+    expect(JSON.stringify(generated.key)).not.toContain('PRIVATE KEY');
+    expect(generated.publicPem).toContain('BEGIN PUBLIC KEY');
+    expect(() => createPortableKey('1234567')).toThrow(VaultError);
+    expect(() => unlockPortableKey(generated.key, 'passphrase-salah')).toThrow(PassphraseError);
+    expect(() => unlockPortableKey({ ...generated.key, fp: 'ffffffffffffffff' }, 'passphrase-kuat')).toThrow(VaultError);
+  });
+
   it('rejects a point that is not on the curve and accepts PEM and raw public keys', () => {
     const k = generateKeyPair(), raw = rawPublic(k.publicKey);
     expect(rawPublic(parsePublicKey(b64u(raw))).equals(raw)).toBe(true);
@@ -73,6 +90,65 @@ describe('keystore', () => {
 });
 
 describe('sign and verify a PDF', () => {
+  it('creates a downloadable .dsk and signs a PDF through the upload API without a stored key id', async () => {
+    const keyResponse = await exportKey(new Request('http://localhost/api/keys/export', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ passphrase: 'passphrase-uji' }),
+    }));
+    expect(keyResponse.status).toBe(201);
+    const key = await keyResponse.json() as { keyFile: string; fp: string; publicPem: string };
+    const form = new FormData();
+    form.set('dsk', new File([key.keyFile], 'signify-test.dsk', { type: 'application/json' }));
+    form.set('passphrase', 'passphrase-uji');
+    form.set('name', 'Penguji'); form.set('title', 'Dosen'); form.set('org', 'Universitas');
+    form.set('file', new File([Uint8Array.from(await pdf(1))], 'surat.pdf', { type: 'application/pdf' }));
+    const signResponse = await signRequest(new Request('http://localhost/api/sign', { method: 'POST', body: form }));
+    expect(signResponse.status).toBe(200);
+    const result = await signResponse.json() as { file: string };
+    const report = verifyDocument(Buffer.from(result.file, 'base64'));
+    expect(report.valid).toBe(true);
+    expect(report.signers[0]).toMatchObject({ name: 'Penguji', title: 'Dosen', org: 'Universitas', fp: key.fp });
+    expect(key.publicPem).toContain('BEGIN PUBLIC KEY');
+
+    const nextKeyResponse = await exportKey(new Request('http://localhost/api/keys/export', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ passphrase: 'passphrase-signer-kedua' }),
+    }));
+    const nextKey = await nextKeyResponse.json() as { keyFile: string };
+    const nextForm = new FormData();
+    nextForm.set('dsk', new File([nextKey.keyFile], 'signer-kedua.dsk', { type: 'application/json' }));
+    nextForm.set('passphrase', 'passphrase-signer-kedua');
+    nextForm.set('name', 'Signer Kedua'); nextForm.set('title', 'Ketua'); nextForm.set('org', 'Fakultas');
+    nextForm.set('file', new File([Uint8Array.from(Buffer.from(result.file, 'base64'))], 'multi-sign-1.signed.pdf', { type: 'application/pdf' }));
+    const nextResponse = await signRequest(new Request('http://localhost/api/sign', { method: 'POST', body: nextForm }));
+    expect(nextResponse.status).toBe(200);
+    const nextResult = await nextResponse.json() as { file: string; signers: number };
+    const chainReport = verifyDocument(Buffer.from(nextResult.file, 'base64'));
+    expect(nextResult.signers).toBe(2);
+    expect(chainReport.valid).toBe(true);
+    expect(chainReport.signers.map((signer) => signer.name)).toEqual(['Penguji', 'Signer Kedua']);
+  });
+
+  it('verifies an uploaded signed PDF and external public PEM, and rejects a different public key', async () => {
+    const signed = await signDocument(await pdf(1), alice, ORIGIN);
+    expect(parseQr(signed.qr.text).id).toBe(signed.docId);
+    const publicPem = alice.publicKey.export({ format: 'pem', type: 'spki' }).toString();
+    const form = new FormData();
+    form.set('file', new File([Uint8Array.from(signed.file)], 'signed.pdf', { type: 'application/pdf' }));
+    form.set('pubkey', publicPem);
+    form.set('qr', signed.qr.text);
+    const roundTrip = await new Request('http://localhost/api/verify', { method: 'POST', body: form }).formData();
+    expect(parseQr(String(roundTrip.get('qr'))).id).toBe(signed.docId);
+    const response = await verifyRequest(new Request('http://localhost/api/verify', { method: 'POST', body: form }));
+    expect(response.status).toBe(200);
+    const report = await response.json() as { valid: boolean; signers: { keyMatches: boolean }[]; qr: { ok: boolean } };
+    expect(report).toMatchObject({ valid: true, signers: [{ keyMatches: true }] });
+    expect(report.qr, JSON.stringify(report.qr)).toMatchObject({ ok: true });
+
+    form.set('pubkey', bob.publicKey.export({ format: 'pem', type: 'spki' }).toString());
+    const wrongKeyResponse = await verifyRequest(new Request('http://localhost/api/verify', { method: 'POST', body: form }));
+    const wrongKeyReport = await wrongKeyResponse.json() as { valid: boolean; signers: { keyMatches: boolean }[]; qr: { ok: boolean } };
+    expect(wrongKeyReport).toMatchObject({ valid: false, signers: [{ keyMatches: false }], qr: { ok: false } });
+  });
+
   it('adds a QR page, verifies, and reports the signer', async () => {
     const src = await pdf(2);
     const r = await signDocument(src, alice, ORIGIN);

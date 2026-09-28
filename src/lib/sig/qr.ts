@@ -21,7 +21,7 @@ export function parseQr(text: string): QrData {
     try { o = JSON.parse(t); } catch { throw new FormatError('bad QR payload'); }
     const v = o as Record<string, unknown>;
     const s = (x: unknown, max: number) => typeof x === 'string' && x.length > 0 && x.length <= max;
-    if (!o || typeof o !== 'object' || Array.isArray(o) || JSON.stringify(o, null, 2) !== t
+    if (!o || typeof o !== 'object' || Array.isArray(o) || JSON.stringify(o, null, 2) !== t.replace(/\r\n/g, '\n')
       || !s(v.signerName, 100) || !s(v.signerRole, 100) || !s(v.institution, 100) || !TIME_RE.test(String(v.timestamp))
       || !s(v.documentId, 32) || !/^[0-9a-f]{16}$/.test(String(v.publicKeyFingerprint)) || !s(v.signature, 100)
       || fromB64u(v.signature as string).length !== SIG_LEN) throw new FormatError('bad QR payload');

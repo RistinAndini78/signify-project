@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-interface Key { id: string; name: string; title: string; org: string; fp: string }
-interface Signed { file: string; bytes: number; docId: string; signers: number; qr: { png: string; version: number; modules: number; secondary?: { png: string; signer: { name: string; title: string; org: string; time: string } } } }
-interface SignerRow { name: string; title: string; org: string; fp: string; }
+interface Signed {
+  file: string; bytes: number; docId: string; signers: number;
+  qr: { png: string; text: string; version: number; modules: number; secondary?: { png: string; signer: { name: string; title: string; org: string; time: string } } };
+}
+interface SignerRow { name: string; title: string; org: string; fp: string }
 
 const fromB64 = (value: string) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 
@@ -15,66 +17,78 @@ function download(name: string, bytes: Uint8Array) {
 }
 
 export default function MultiSignPage() {
-  const [keys, setKeys] = useState<Key[]>([]);
-  const [keyId, setKeyId] = useState('');
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [dskFile, setDskFile] = useState<File | null>(null);
+  const [dskInputKey, setDskInputKey] = useState(0);
   const [passphrase, setPassphrase] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [originalFile, setOriginalFile] = useState<File | null>(null);
-  const [firstKeyId, setFirstKeyId] = useState('');
-  const [firstPassphrase, setFirstPassphrase] = useState('');
+  const [identity, setIdentity] = useState({ name: '', title: '', org: '' });
   const [signed, setSigned] = useState<Signed | null>(null);
   const [rows, setRows] = useState<SignerRow[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    void fetch('/api/keys').then((response) => response.json()).then((data) => {
-      const available = data.keys ?? [];
-      setKeys(available);
-      if (available[0]) setKeyId(available[0].id);
-    });
-  }, []);
-
   function chooseInitialFile(next: File | null) {
     setError('');
     if (next && !next.name.toLowerCase().endsWith('.pdf')) {
-      setFile(null);
       setError('Hanya file PDF yang dapat ditandatangani.');
       return;
     }
-    setFile(next);
-    setOriginalFile(next);
+    setCurrentFile(next);
     setSigned(null);
     setRows([]);
+    setDskFile(null);
+    setDskInputKey((key) => key + 1);
+    setPassphrase('');
+    setIdentity({ name: '', title: '', org: '' });
+  }
+
+  function startNewChain() {
+    setCurrentFile(null);
+    setSigned(null);
+    setRows([]);
+    setDskFile(null);
+    setDskInputKey((key) => key + 1);
+    setPassphrase('');
+    setIdentity({ name: '', title: '', org: '' });
+    setError('');
   }
 
   async function addSignature() {
     setError('');
-    if (!file || !keyId || !passphrase) {
-      setError('Pilih PDF, kunci penandatangan, dan masukkan password.');
+    if (!currentFile || !dskFile || !passphrase || !identity.name.trim() || !identity.title.trim() || !identity.org.trim()) {
+      setError('Lengkapi file .dsk, passphrase, nama, jabatan, dan institusi.');
       return;
     }
+    if (!dskFile.name.toLowerCase().endsWith('.dsk')) {
+      setError('File kunci harus berformat .dsk.');
+      return;
+    }
+
     setBusy(true);
     const form = new FormData();
-    form.set('keyId', keyId);
+    form.set('dsk', dskFile);
     form.set('passphrase', passphrase);
-    form.set('file', signed && originalFile ? originalFile : file);
-    if (signed && originalFile && firstKeyId && firstPassphrase) {
-      form.set('firstKeyId', firstKeyId);
-      form.set('firstPassphrase', firstPassphrase);
-    }
+    form.set('name', identity.name.trim());
+    form.set('title', identity.title.trim());
+    form.set('org', identity.org.trim());
+    form.set('file', currentFile);
     try {
       const response = await fetch('/api/sign', { method: 'POST', body: form });
-      const data = await response.json();
+      const data = await response.json() as Signed & { error?: string };
       if (!response.ok) throw new Error(data.error ?? 'Tanda tangan gagal.');
-      const signer = keys.find((key) => key.id === keyId);
-      setRows((current) => [...current, signer ? { name: signer.name, title: signer.title, org: signer.org, fp: signer.fp } : { name: 'Signer', title: '-', org: '-', fp: '-' }]);
-      if (!signed) { setFirstKeyId(keyId); setFirstPassphrase(passphrase); }
+
+      const qrInfo = JSON.parse(data.qr.text) as { publicKeyFingerprint?: string };
+      const nextFile = new File([fromB64(data.file)], `multi-sign-${data.signers}.signed.pdf`, { type: 'application/pdf' });
+      setCurrentFile(nextFile);
       setSigned(data);
-      setFile(new File([fromB64(data.file)], `signed-${data.signers}.pdf`, { type: 'application/pdf' }));
+      setRows((current) => [...current, {
+        ...identity,
+        fp: qrInfo.publicKeyFingerprint ?? 'sidik jari tidak tersedia',
+      }]);
+      setDskFile(null);
+      setDskInputKey((key) => key + 1);
       setPassphrase('');
-      const next = keys.find((key) => key.id !== keyId && !rows.some((row) => row.fp === key.fp));
-      if (next) setKeyId(next.id);
+      setIdentity({ name: '', title: '', org: '' });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Tanda tangan gagal.');
     } finally {
@@ -82,41 +96,50 @@ export default function MultiSignPage() {
     }
   }
 
-  const downloadName = signed ? `Siliwangi-Disign-${signed.signers}-penandatangan.signed.pdf` : 'Siliwangi-Disign.signed.pdf';
+  const signerNumber = rows.length + 1;
+  const downloadName = `multi-sign-${signed?.signers ?? 0}-penandatangan.signed.pdf`;
 
   return (
     <main className="app-shell">
       <div className="app-container">
         <header className="hero">
-          <p className="eyebrow">Siliwangi-Disign</p>
+          <p className="eyebrow">Signify</p>
           <h1>Multi-tanda tangan.</h1>
-          <p className="hero-copy">Tambahkan tanda tangan secara berurutan. Setiap signer menandatangani dokumen yang sudah memuat signature sebelumnya.</p>
+          <p className="hero-copy">PDF bertanda tangan diperbarui otomatis setiap kali signer menambahkan tanda tangan. File hasil tahap sebelumnya menjadi dokumen aktif untuk signer berikutnya.</p>
           <a className="hero-link" href="/">Kembali ke tanda tangan dan verifikasi</a>
         </header>
 
         <div className="multi-page-layout">
           <section className="workflow-card">
-            <p className="card-kicker"><span className="card-number">1</span> Dokumen berantai</p>
-            <h2>Siapkan penandatangan</h2>
-            <p className="card-intro">Mulai dari PDF asli. Setelah satu signer selesai, file signed otomatis menjadi input untuk signer berikutnya.</p>
-            <div className="full-field"><label htmlFor="multi-file">Dokumen PDF awal</label><input id="multi-file" type="file" accept="application/pdf,.pdf" onChange={(event) => chooseInitialFile(event.target.files?.[0] ?? null)} /></div>
-            <div className="field"><label htmlFor="multi-key">Kunci signer</label><select id="multi-key" value={keyId} onChange={(event) => setKeyId(event.target.value)}>{keys.map((key) => <option key={key.id} value={key.id}>{key.name} ({key.fp})</option>)}</select></div>
-            <div className="field"><label htmlFor="multi-pass">Password kunci</label><input id="multi-pass" type="password" placeholder="Masukkan password signer" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></div>
-            {file && <div className="co-signing-status"><b>{signed ? 'Dokumen lanjutan siap' : 'PDF awal siap'}</b><span>{file.name}</span><small>{signed ? 'Pilih signer berikutnya, masukkan password, lalu tambahkan tanda tangan.' : 'Signer pertama akan menjadi awal rantai signature.'}</small></div>}
-            <button onClick={addSignature} disabled={busy}>{busy ? 'Memproses...' : signed ? 'Tambah tanda tangan signer ini' : 'Tanda tangani signer pertama'}</button>
+            <p className="card-kicker"><span className="card-number">{signerNumber}</span> {rows.length === 0 ? 'Dokumen awal' : `Penandatangan ${signerNumber}`}</p>
+            <h2>{rows.length === 0 ? 'Mulai rantai tanda tangan' : `Tanda tangan sebagai signer ${signerNumber}`}</h2>
+            <p className="card-intro">{rows.length === 0 ? 'Pilih PDF yang akan ditandatangani. Setelah signer pertama berhasil, hasilnya otomatis menjadi dokumen untuk signer selanjutnya.' : 'Dokumen yang tampil sudah memuat tanda tangan sebelumnya. Tambahkan kunci dan identitas Anda untuk melanjutkan rantai.'}</p>
+
+            {rows.length === 0 && <div className="full-field"><label htmlFor="multi-file">PDF AWAL</label><input id="multi-file" type="file" accept="application/pdf,.pdf" onChange={(event) => chooseInitialFile(event.target.files?.[0] ?? null)} /></div>}
+            {currentFile && <div className="co-signing-status"><b>{rows.length === 0 ? 'PDF awal siap' : `PDF hasil ${rows.length} signer siap`}</b><span>{currentFile.name}</span><small>{currentFile.size.toLocaleString('id-ID')} byte · dokumen aktif untuk signer berikutnya</small></div>}
+
+            {currentFile && <>
+              <div className="full-field"><label htmlFor={`multi-dsk-${dskInputKey}`}>PRIVATE KEY (.DSK)</label><input key={dskInputKey} id={`multi-dsk-${dskInputKey}`} type="file" accept=".dsk,application/json" onChange={(event) => setDskFile(event.target.files?.[0] ?? null)} /></div>
+              <div className="field"><label htmlFor="multi-pass">PASSPHRASE</label><input id="multi-pass" type="password" autoComplete="current-password" placeholder="Passphrase untuk file .dsk" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></div>
+              <div className="field"><label htmlFor="multi-name">NAMA</label><input id="multi-name" placeholder="Nama lengkap signer" value={identity.name} onChange={(event) => setIdentity({ ...identity, name: event.target.value })} /></div>
+              <div className="field"><label htmlFor="multi-title">JABATAN</label><input id="multi-title" placeholder="Jabatan signer" value={identity.title} onChange={(event) => setIdentity({ ...identity, title: event.target.value })} /></div>
+              <div className="field"><label htmlFor="multi-org">INSTITUSI</label><input id="multi-org" placeholder="Nama institusi" value={identity.org} onChange={(event) => setIdentity({ ...identity, org: event.target.value })} /></div>
+              <button onClick={addSignature} disabled={busy}>{busy ? 'Memproses tanda tangan...' : `Tandatangani sebagai signer ${signerNumber}`}</button>
+            </>}
             {error && <p className="error" role="alert">{error}</p>}
+            {rows.length > 0 && <button className="button-secondary reset-chain" onClick={startNewChain}>Mulai rantai baru</button>}
           </section>
 
           <aside className="workflow-card signer-timeline">
             <p className="card-kicker"><span className="card-number">2</span> Rantai signature</p>
             <h2>Urutan signer</h2>
-            <p className="card-intro">Signature tidak ditimpa. Setiap tahap menambah blok baru di akhir dokumen.</p>
-            {rows.length === 0 ? <div className="empty-state">Belum ada signer. Tanda tangani PDF untuk memulai.</div> : <ol className="signer-list">{rows.map((row, index) => <li key={`${row.fp}-${index}`}><span className="timeline-dot">{index + 1}</span><div><b>{row.name}</b><small>{row.title} · {row.org}</small><code>{row.fp}</code></div></li>)}</ol>}
+            <p className="card-intro">Setiap tanda tangan ditambahkan ke PDF aktif. Signer berikutnya tidak perlu mengunggah ulang dokumen.</p>
+            {rows.length === 0 ? <div className="empty-state">Belum ada signer. Pilih PDF dan lakukan tanda tangan pertama.</div> : <ol className="signer-list">{rows.map((row, index) => <li key={`${row.fp}-${index}`}><span className="timeline-dot">{index + 1}</span><div><b>{row.name}</b><small>{row.title} · {row.org}</small><code>{row.fp}</code></div></li>)}</ol>}
           </aside>
         </div>
 
-        {signed && <section className="workflow-card multi-result"><div><p className="card-kicker"><span className="card-number">3</span> Hasil terbaru</p><h2>{signed.signers} penandatangan tersimpan</h2><p className="card-intro">Dokumen sudah memiliki rantai signature dan dapat diteruskan ke signer berikutnya.</p><button onClick={() => download(downloadName, fromB64(signed.file))}>Unduh PDF bertanda tangan</button></div><div className="qr-pair"><div><img className="qr-image" alt="QR-Code signer terbaru" src={`data:image/png;base64,${signed.qr.png}`} /><small>Signer terbaru</small></div>{signed.qr.secondary && <div><img className="qr-image qr-image-mini" alt="QR-Code signer sebelumnya" src={`data:image/png;base64,${signed.qr.secondary.png}`} /><small>{signed.qr.secondary.signer.name}</small></div>}</div></section>}
-        <p className="footer-note"><a href="/">Kembali ke tanda tangan dan verifikasi</a></p>
+        {signed && <section className="workflow-card multi-result"><div><p className="card-kicker"><span className="card-number">3</span> Hasil terbaru</p><h2>{signed.signers} penandatangan tersimpan</h2><p className="card-intro">PDF aktif sudah diperbarui dan siap diunduh atau diteruskan ke signer berikutnya.</p><button onClick={() => download(downloadName, fromB64(signed.file))}>Unduh PDF bertanda tangan</button></div><div className="qr-pair"><div><img className="qr-image" alt="QR-Code signer terbaru" src={`data:image/png;base64,${signed.qr.png}`} /><small>Signer terbaru</small></div>{signed.qr.secondary && <div><img className="qr-image qr-image-mini" alt="QR-Code signer sebelumnya" src={`data:image/png;base64,${signed.qr.secondary.png}`} /><small>{signed.qr.secondary.signer.name}</small></div>}</div></section>}
+        <p className="footer-note">ECDSA P-256 · SHA-256 · QR verification</p>
       </div>
     </main>
   );

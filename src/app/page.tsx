@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import jsQR from 'jsqr';
+import { useEffect, useRef, useState } from 'react';
 
 interface Key { id: string; name: string; title: string; org: string; created: string; fp: string; publicKey: string }
 interface Signer { index: number; name: string; title: string; org: string; time: string; fp: string; hashOk: boolean; sigOk: boolean; qrOk: boolean; keyMatches: boolean; valid: boolean; registeredAs: string | null; reason: string }
@@ -9,6 +10,7 @@ interface Report {
   qr: { ok: boolean; reason: string; meta?: { name: string; title: string; org: string; time: string }; registeredAs?: string | null } | null;
 }
 interface Signed { file: string; bytes: number; docId: string; signers: number; qr: { png: string; text: string; modules: number; version: number; bytes: number } }
+interface GeneratedKey { keyFile: string; publicPem: string; fp: string }
 
 const bytesOf = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 const ok = (v: boolean) => (v ? '✓' : '✗');
@@ -19,132 +21,302 @@ function save(name: string, bytes: Uint8Array) {
   URL.revokeObjectURL(url);
 }
 
-export default function Home() {
-  const [keys, setKeys] = useState<Key[]>([]);
-  const [form, setForm] = useState({ name: '', title: '', org: '', passphrase: '' });
-  const [keyMsg, setKeyMsg] = useState('');
+function saveText(name: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  Object.assign(document.createElement('a'), { href: url, download: name }).click();
+  URL.revokeObjectURL(url);
+}
 
-  const [keyId, setKeyId] = useState('');
+export default function Home() {
+  const [keyPass, setKeyPass] = useState('');
+  const [keyPassConfirm, setKeyPassConfirm] = useState('');
+  const [generatedKey, setGeneratedKey] = useState<GeneratedKey | null>(null);
+  const [keyMsg, setKeyMsg] = useState('');
+  const [keyBusy, setKeyBusy] = useState(false);
+
   const [pass, setPass] = useState('');
+  const [dskFile, setDskFile] = useState<File | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [signed, setSigned] = useState<Signed | null>(null);
   const [signErr, setSignErr] = useState('');
+  const [signBusy, setSignBusy] = useState(false);
+  const [identity, setIdentity] = useState({ name: '', title: '', org: '' });
 
   const [vFile, setVFile] = useState<File | null>(null);
   const [qr, setQr] = useState('');
-  const [pubMode, setPubMode] = useState<'auto' | 'vault' | 'paste'>('auto');
-  const [vaultKey, setVaultKey] = useState('');
+  const [pemFileContents, setPemFileContents] = useState('');
+  const [pemFileName, setPemFileName] = useState('');
   const [pem, setPem] = useState('');
   const [report, setReport] = useState<Report | null>(null);
   const [vErr, setVErr] = useState('');
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  const loadKeys = async () => {
-    const j = await (await fetch('/api/keys')).json();
-    setKeys(j.keys ?? []);
-    if (j.keys?.length && !keyId) { setKeyId(j.keys[0].id); setVaultKey(j.keys[0].id); }
-  };
   useEffect(() => {
-    void loadKeys();
     const h = window.location.hash;
     if (h.includes('q=')) setQr(h); // a scanned QR-Code opens this page with the payload in the fragment
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!cameraOn) return;
+    let stream: MediaStream | null = null;
+    let frame = 0;
+    let cancelled = false;
+
+    async function scanWithCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError('Kamera memerlukan koneksi HTTPS atau localhost dan dukungan browser.');
+        setCameraOn(false);
+        return;
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
+        const video = videoRef.current;
+        if (!video) throw new Error('Pratinjau kamera tidak tersedia.');
+        video.srcObject = stream;
+        await video.play();
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) throw new Error('Pemindai QR tidak dapat dimulai.');
+        let lastScan = 0;
+        const scanFrame = (time: number) => {
+          if (cancelled) return;
+          if (time - lastScan >= 100 && video.readyState >= 2 && video.videoWidth > 0) {
+            lastScan = time;
+            const scale = Math.min(1, 960 / video.videoWidth);
+            canvas.width = Math.round(video.videoWidth * scale);
+            canvas.height = Math.round(video.videoHeight * scale);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const image = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' });
+            if (code?.data) {
+              setQr(code.data);
+              setCameraError('QR berhasil dipindai. Lanjutkan dengan verifikasi dokumen.');
+              setCameraOn(false);
+              return;
+            }
+          }
+          frame = requestAnimationFrame(scanFrame);
+        };
+        frame = requestAnimationFrame(scanFrame);
+      } catch (cause) {
+        if (!cancelled) {
+          const message = cause instanceof DOMException && cause.name === 'NotAllowedError'
+            ? 'Akses kamera ditolak. Izinkan akses kamera pada pengaturan browser.'
+            : 'Kamera tidak dapat dibuka. Pastikan kamera tidak sedang digunakan aplikasi lain.';
+          setCameraError(message);
+          setCameraOn(false);
+        }
+      }
+    }
+
+    void scanWithCamera();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      stream?.getTracks().forEach((track) => track.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+  }, [cameraOn]);
+
   async function createKey() {
-    setKeyMsg('');
-    const r = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    const j = await r.json();
-    if (r.ok) { setKeyMsg(`Kunci dibuat: ${j.name}, sidik jari ${j.fp}`); setForm({ ...form, passphrase: '' }); setKeyId(j.id); await loadKeys(); } else setKeyMsg(j.error ?? 'gagal');
+    setKeyMsg(''); setGeneratedKey(null);
+    if (keyPass.length < 8) { setKeyMsg('Passphrase harus terdiri dari minimal 8 karakter.'); return; }
+    if (keyPass !== keyPassConfirm) { setKeyMsg('Konfirmasi passphrase belum sama.'); return; }
+    setKeyBusy(true);
+    try {
+      const r = await fetch('/api/keys/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passphrase: keyPass }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? 'Pembuatan kunci gagal.');
+      setGeneratedKey(j);
+      setKeyPass(''); setKeyPassConfirm('');
+      setKeyMsg('Pasangan kunci berhasil dibuat. Unduh dan simpan kedua file berikut.');
+    } catch (cause) {
+      setKeyMsg(cause instanceof Error ? cause.message : 'Pembuatan kunci gagal.');
+    } finally {
+      setKeyBusy(false);
+    }
   }
 
   async function sign() {
     setSignErr(''); setSigned(null);
-    if (!file || !keyId) { setSignErr('Pilih kunci dan berkas'); return; }
+    if (!file || !dskFile || !pass || !identity.name.trim() || !identity.title.trim() || !identity.org.trim()) { setSignErr('Lengkapi PDF, file .dsk, passphrase, nama, jabatan, dan institusi.'); return; }
     if (!file.name.toLowerCase().endsWith('.pdf')) { setSignErr('Hanya file PDF yang dapat ditandatangani.'); return; }
-    const f = new FormData(); f.set('keyId', keyId); f.set('passphrase', pass); f.set('file', file);
-    const r = await fetch('/api/sign', { method: 'POST', body: f });
-    const j = await r.json();
-    if (r.ok) setSigned(j); else setSignErr(j.error ?? 'gagal');
+    if (!dskFile.name.toLowerCase().endsWith('.dsk')) { setSignErr('Pilih file kunci dengan ekstensi .dsk.'); return; }
+    setSignBusy(true);
+    const f = new FormData();
+    f.set('dsk', dskFile); f.set('passphrase', pass); f.set('file', file);
+    f.set('name', identity.name.trim()); f.set('title', identity.title.trim()); f.set('org', identity.org.trim());
+    try {
+      const r = await fetch('/api/sign', { method: 'POST', body: f });
+      const j = await r.json();
+      if (r.ok) setSigned(j); else setSignErr(j.error ?? 'Tanda tangan gagal.');
+    } catch {
+      setSignErr('Tidak dapat menghubungi server untuk menandatangani berkas.');
+    } finally {
+      setSignBusy(false);
+    }
   }
 
   async function verify() {
     setVErr(''); setReport(null);
-    if (vFile && !vFile.name.toLowerCase().endsWith('.pdf')) { setVErr('Hanya file PDF yang dapat diverifikasi.'); return; }
+    if (!vFile) { setVErr('Pilih file PDF hasil tanda tangan terlebih dahulu.'); return; }
+    if (!vFile.name.toLowerCase().endsWith('.pdf')) { setVErr('Hanya file PDF yang dapat diverifikasi.'); return; }
+    const publicKeyText = pem.trim() || pemFileContents.trim();
+    if (!publicKeyText) { setVErr('Unggah file public key .pem atau tempel public key pada kolom teks.'); return; }
     const f = new FormData();
-    if (vFile) f.set('file', vFile);
+    f.set('file', vFile);
     if (qr) f.set('qr', qr);
-    if (pubMode === 'vault' && vaultKey) f.set('keyId', vaultKey);
-    if (pubMode === 'paste' && pem) f.set('pubkey', pem);
-    const r = await fetch('/api/verify', { method: 'POST', body: f });
-    const j = await r.json();
-    if (r.ok) setReport(j); else setVErr(j.error ?? 'gagal');
+    f.set('pubkey', publicKeyText);
+    setVerifyBusy(true);
+    try {
+      const r = await fetch('/api/verify', { method: 'POST', body: f });
+      const j = await r.json();
+      if (r.ok) setReport(j); else setVErr(j.error ?? 'Verifikasi gagal.');
+    } catch {
+      setVErr('Tidak dapat menghubungi server untuk memverifikasi berkas.');
+    } finally {
+      setVerifyBusy(false);
+    }
   }
+
+  async function readVerifyPem(file: File | null) {
+    setPemFileName(''); setPemFileContents(''); setReport(null); setVErr('');
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pem')) { setVErr('Pilih file public key dengan ekstensi .pem.'); return; }
+    if (file.size > 16 * 1024) { setVErr('File public key terlalu besar.'); return; }
+    try {
+      setPemFileContents(await file.text());
+      setPemFileName(file.name);
+    } catch {
+      setVErr('File public key tidak dapat dibaca.');
+    }
+  }
+
+
 
   const signedName = file ? file.name.replace(/(\.[^.]+)?$/, (m) => `.signed${m}`) : 'signed';
 
+        <div className="workflow-grid">
+          <section className="workflow-card">
+            <p className="card-kicker"><span className="card-number">1</span> Key Management</p>
+            <h2>Buat Pasangan Kunci</h2>
+            <p className="card-intro">Buat kunci ECDSA P-256 baru. Private key akan dienkripsi dengan passphrase dan diunduh sebagai file .dsk.</p>
+            <div className="dotted-rule" />
+            <div className="field"><label htmlFor="key-pass">PASSPHRASE (MINIMAL 8 KARAKTER)</label><input id="key-pass" type="password" autoComplete="new-password" placeholder="Masukkan passphrase" value={keyPass} onChange={(e) => setKeyPass(e.target.value)} /></div>
+            <div className="field"><label htmlFor="key-pass-confirm">ULANGI PASSPHRASE</label><input id="key-pass-confirm" type="password" autoComplete="new-password" placeholder="Ulangi passphrase" value={keyPassConfirm} onChange={(e) => setKeyPassConfirm(e.target.value)} /></div>
+            <button className="primary-wide" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Membuat kunci...' : 'Buat Pasangan Kunci'}</button>
+            {keyMsg && <p className={generatedKey ? 'success' : 'error'} role={generatedKey ? 'status' : 'alert'}>{keyMsg}</p>}
+            {generatedKey && <div className="key-downloads">
+              <p className="key-fingerprint">Sidik jari · <code>{generatedKey.fp}</code></p>
+              <button className="download-button" onClick={() => saveText(`signify-${generatedKey.fp}.dsk`, generatedKey.keyFile, 'application/json')}>Unduh private key (.dsk)</button>
+              <button className="download-button button-secondary" onClick={() => saveText(`signify-${generatedKey.fp}-public.pem`, generatedKey.publicPem, 'application/x-pem-file')}>Unduh public key (.pem)</button>
+            </div>}
+          </section>
+
+          <section className="workflow-card">
+            <p className="card-kicker"><span className="card-number">2</span> Penandatanganan</p>
+            <h2>Tandatangani PDF</h2>
+            <p className="card-intro">Gunakan file .dsk dan identitas Anda untuk menandatangani dokumen.</p>
+            <div className="dotted-rule" />
+            <div className="full-field"><label htmlFor="sign-file">PDF</label><input id="sign-file" type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setSigned(null); }} /></div>
+            {file && <p className="selected-file">PDF: <b>{file.name}</b></p>}
+            <div className="full-field"><label htmlFor="sign-dsk">PRIVATE KEY (.DSK)</label><input id="sign-dsk" type="file" accept=".dsk,application/json" onChange={(e) => { setDskFile(e.target.files?.[0] ?? null); setSigned(null); }} /></div>
+            <div className="field"><label htmlFor="pass">PASSPHRASE</label><input id="pass" type="password" placeholder="Passphrase" value={pass} onChange={(e) => setPass(e.target.value)} /></div>
+            <div className="field"><label htmlFor="name">NAMA</label><input id="name" placeholder="Nama" value={identity.name} onChange={(e) => setIdentity({ ...identity, name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="title">JABATAN</label><input id="title" placeholder="Jabatan" value={identity.title} onChange={(e) => setIdentity({ ...identity, title: e.target.value })} /></div>
+            <div className="field"><label htmlFor="org">INSTITUSI</label><input id="org" placeholder="Institusi" value={identity.org} onChange={(e) => setIdentity({ ...identity, org: e.target.value })} /></div>
+            <button className="primary-wide" onClick={sign} disabled={signBusy}>{signBusy ? 'Memproses...' : 'Tandatangani Berkas'}</button>
+            {signErr && <p className="error">{signErr}</p>}
+            {signed && <div className="success"><b>Dokumen siap!</b><br /><button onClick={() => save(signedName, bytesOf(signed.file))}>Unduh PDF</button></div>}
+          </section>
+        </div>
   return (
     <main className="app-shell">
       <div className="app-container">
-        <header className="hero">
-          <p className="eyebrow">Signify</p>
-          <h1>Tanda tangan yang bisa diverifikasi.</h1>
-          <p className="hero-copy">Lindungi dokumen dengan ECDSA P-256, hash SHA-256, dan QR-Code yang membawa identitas penandatangan. Satu ruang kerja untuk membuat kunci, menandatangani, dan memeriksa keaslian.</p>
-          <div className="hero-links"><a className="hero-link" href="/multi-sign">Buka Multi-signature</a><a className="hero-link" href="/uji-ketahanan">Uji Ketahanan Dokumen</a></div>
+        <header className="key-hero">
+          <p className="eyebrow">Signify · Tanda tangan digital</p>
+          <h1>Buat pasangan kunci ECDSA P-256</h1>
+          <p>Private key langsung dienkripsi AES-256-GCM dengan key yang diturunkan dari passphrase via scrypt, lalu diunduh sebagai file .dsk. Public key (SPKI/PEM) bebas dibagikan kepada siapa pun yang perlu memverifikasi tanda tangan Anda.</p>
+          <nav className="hero-links"><a className="hero-link" href="/multi-sign">Multi-signature</a><a className="hero-link" href="/uji-ketahanan">Uji ketahanan</a></nav>
         </header>
+
+        <div className="key-grid">
+          <section className="paper-panel">
+            <h2>Passphrase</h2>
+            <p className="card-intro">Passphrase dikirim melalui HTTPS hanya untuk derivasi kunci AES. Passphrase tidak disimpan; private key terenkripsi diunduh sebagai file .dsk.</p>
+            <div className="dotted-rule" />
+            <div className="field"><label htmlFor="key-pass">PASSPHRASE (MINIMAL 8 KARAKTER)</label><input id="key-pass" type="password" autoComplete="new-password" placeholder="Masukkan passphrase" value={keyPass} onChange={(e) => setKeyPass(e.target.value)} /></div>
+            <div className="field"><label htmlFor="key-pass-confirm">ULANGI PASSPHRASE</label><input id="key-pass-confirm" type="password" autoComplete="new-password" placeholder="Ulangi passphrase" value={keyPassConfirm} onChange={(e) => setKeyPassConfirm(e.target.value)} /></div>
+            <button className="primary-wide" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Membuat kunci...' : 'Buat Pasangan Kunci'}</button>
+            {keyMsg && <p className={generatedKey ? 'success' : 'error'} role={generatedKey ? 'status' : 'alert'}>{keyMsg}</p>}
+          </section>
+          <section className="paper-panel key-result-panel">
+            <h2>Hasil</h2>
+            <p className="card-intro">Simpan KEDUA file ini bersama-sama. File .dsk tidak dapat digunakan tanpa passphrase Anda.</p>
+            <div className="dotted-rule" />
+            {generatedKey ? <div className="key-downloads">
+              <p className="key-fingerprint">Sidik jari · <code>{generatedKey.fp}</code></p>
+              <button className="download-button" onClick={() => saveText(`signify-${generatedKey.fp}.dsk`, generatedKey.keyFile, 'application/json')}>Unduh private key (.dsk)</button>
+              <button className="download-button button-secondary" onClick={() => saveText(`signify-${generatedKey.fp}-public.pem`, generatedKey.publicPem, 'application/x-pem-file')}>Unduh public key (.pem)</button>
+              <p className="notice">Jangan bagikan file .dsk atau passphrase. Public key boleh dibagikan untuk verifikasi.</p>
+            </div> : <p className="empty-key-result">Hasil generate akan muncul di sini, lengkap dengan tombol unduh public key dan private key terenkripsi.</p>}
+          </section>
+        </div>
+
+        <section className="sign-workspace">
+          <div className="section-heading"><p className="eyebrow">Alur penandatanganan</p><h2>Tandatangani berkas PDF</h2><p>Gunakan file .dsk yang Anda simpan saat membuat pasangan kunci.</p></div>
+          <div className="sign-grid">
+            <section className="paper-panel sign-form-panel">
+              <div className="field"><label htmlFor="sign-file">1. BERKAS PDF</label><input id="sign-file" type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setSigned(null); }} /></div>
+              {file && <p className="selected-file">Berkas dipilih: <b>{file.name}</b></p>}
+              <div className="field"><label htmlFor="sign-dsk">2. PRIVATE KEY (.DSK)</label><input id="sign-dsk" type="file" accept=".dsk,application/json" onChange={(e) => { setDskFile(e.target.files?.[0] ?? null); setSigned(null); }} /></div>
+              <div className="field"><label htmlFor="sign-pass">3. PASSPHRASE</label><input id="sign-pass" placeholder="Masukkan passphrase kunci" type="password" autoComplete="current-password" value={pass} onChange={(e) => setPass(e.target.value)} /></div>
+              <div className="dotted-rule" />
+              <div className="field"><label htmlFor="sign-name">NAMA PENANDATANGAN</label><input id="sign-name" placeholder="Nama lengkap" value={identity.name} onChange={(e) => setIdentity({ ...identity, name: e.target.value })} /></div>
+              <div className="field"><label htmlFor="sign-title">JABATAN</label><input id="sign-title" placeholder="Contoh: Kepala Program Studi" value={identity.title} onChange={(e) => setIdentity({ ...identity, title: e.target.value })} /></div>
+              <div className="field"><label htmlFor="sign-org">INSTITUSI</label><input id="sign-org" placeholder="Nama institusi" value={identity.org} onChange={(e) => setIdentity({ ...identity, org: e.target.value })} /></div>
+              <button className="primary-wide" onClick={sign} disabled={signBusy}>{signBusy ? 'Menandatangani...' : 'Tandatangani Berkas'}</button>
+              {signErr && <p className="error" role="alert">{signErr}</p>}
+            </section>
+            <section className="paper-panel sign-result-panel">
+              <h2>Dokumen bertanda tangan</h2>
+              <p className="card-intro">Hasil tanda tangan digital dan QR verifikasi akan tersedia di sini.</p>
+              <div className="dotted-rule" />
+              {signed ? <div className="result-copy">
+                <p className="success"><b>Dokumen siap diunduh</b><br />{signed.signers} penandatangan · {signed.bytes.toLocaleString('id-ID')} byte</p>
+                <p className="mono">ID dokumen: {signed.docId}</p>
+                <img className="qr-image" alt="QR-Code verifikasi dokumen" src={`data:image/png;base64,${signed.qr.png}`} />
+                <button className="download-button" onClick={() => save(signedName, bytesOf(signed.file))}>Unduh PDF bertanda tangan</button>
+              </div> : <p className="empty-key-result">Lengkapi berkas dan identitas, lalu pilih tombol tandatangani berkas.</p>}
+            </section>
+          </div>
+        </section>
 
         <div className="workflow-grid">
           <section className="workflow-card wide">
-            <p className="card-kicker"><span className="card-number">1</span> Identitas kriptografis</p>
-            <h2>Kunci penandatangan</h2>
-            <p className="card-intro">Buat pasangan kunci baru. Kunci privat disimpan terenkripsi di server dan tidak pernah ditampilkan.</p>
-            <div className="field-grid">
-              <div className="field"><label htmlFor="name">Nama</label><input id="name" placeholder="Nama penandatangan" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-              <div className="field"><label htmlFor="title">Jabatan</label><input id="title" placeholder="Contoh: Dosen" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
-              <div className="field"><label htmlFor="org">Institusi</label><input id="org" placeholder="Nama institusi" value={form.org} onChange={(e) => setForm({ ...form, org: e.target.value })} /></div>
-              <div className="field"><label htmlFor="passphrase">Kata sandi kunci</label><input id="passphrase" placeholder="Minimal 10 karakter" type="password" value={form.passphrase} onChange={(e) => setForm({ ...form, passphrase: e.target.value })} /></div>
+            <p className="card-kicker"><span className="card-number">3</span> Verifikasi</p>
+            <h2>Verifikasi Dokumen</h2>
+            <p className="card-intro">Unggah PDF bertanda tangan dan tempel public key penandatangan untuk memeriksa integritas tanda tangan.</p>
+            <div className="full-field"><label htmlFor="verify-file">PDF BERTANDA TANGAN</label><input id="verify-file" type="file" accept="application/pdf,.pdf" onChange={(e) => { setVFile(e.target.files?.[0] ?? null); setReport(null); }} /></div>
+            {vFile && <p className="selected-file">PDF: <b>{vFile.name}</b></p>}
+            <div className="full-field"><label htmlFor="verify-pem-file">PUBLIC KEY PENANDATANGAN (.PEM)</label><input id="verify-pem-file" type="file" accept=".pem,application/x-pem-file,text/plain" onChange={(e) => void readVerifyPem(e.target.files?.[0] ?? null)} />{pemFileName && <small className="selected-file">File: <b>{pemFileName}</b></small>}</div>
+            <details className="optional-pem"><summary>Atau tempel public key sebagai teks</summary><div className="full-field"><label htmlFor="pem">PUBLIC KEY PEM / RAW</label><textarea id="pem" className="mono" placeholder="-----BEGIN PUBLIC KEY----- ..." value={pem} onChange={(e) => { setPem(e.target.value); setReport(null); }} /></div></details>
+            <div className="dotted-rule" />
+            <div className="scanner-heading">
+              <div><b>QR VERIFIKASI</b><small>Opsional.</small></div>
+              <button type="button" className="button-secondary" onClick={() => { setCameraError(''); setCameraOn(true); }} disabled={cameraOn}>Pindai Kamera</button>
             </div>
-            <button onClick={createKey}>Buat pasangan kunci</button>
-            {keyMsg && <p className="success">{keyMsg}</p>}
-            <p className="notice">AES-256-GCM dan scrypt digunakan untuk melindungi kunci privat. Yang tampil di halaman ini hanya kunci publik dan sidik jarinya.</p>
-            {keys.length > 0 && <div className="key-list"><table><thead><tr><th>Nama</th><th>Jabatan</th><th>Institusi</th><th>Sidik jari</th></tr></thead><tbody>
-              {keys.map((k) => <tr key={k.id}><td>{k.name}</td><td>{k.title}</td><td>{k.org}</td><td><code>{k.fp}</code></td></tr>)}
-            </tbody></table></div>}
-          </section>
-
-          <section className="workflow-card">
-            <p className="card-kicker"><span className="card-number">2</span> Keaslian file</p>
-            <h2>Tanda tangani</h2>
-            <p className="card-intro">Pilih kunci dan berkas. Untuk tanda tangan berlapis, gunakan tombol tambah penandatangan setelah tahap pertama selesai.</p>
-            <div className="field"><label htmlFor="sign-key">Kunci</label><select id="sign-key" value={keyId} onChange={(e) => setKeyId(e.target.value)}>
-              {keys.map((k) => <option key={k.id} value={k.id}>{k.name} ({k.fp})</option>)}
-            </select></div>
-            <div className="field"><label htmlFor="sign-pass">Kata sandi kunci</label><input id="sign-pass" placeholder="Masukkan kata sandi" type="password" value={pass} onChange={(e) => setPass(e.target.value)} /></div>
-            <div className="full-field"><label htmlFor="sign-file">Berkas PDF yang akan ditandatangani</label><input id="sign-file" type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
-            <button onClick={sign}>Tanda tangani berkas</button>
-            {signErr && <p className="error" role="alert">{signErr}</p>}
-          </section>
-          <section className="workflow-card">
-            {signed && <div className="success result-layout"><div className="result-generated"><div className="result-copy"><b>Dokumen siap diunduh</b><p>{signed.signers} penandatangan · {signed.bytes} B</p><p className="mono">ID: {signed.docId}</p><img className="qr-image" alt="QR-Code" src={`data:image/png;base64,${signed.qr.png}`} /><div className="result-actions"><button onClick={() => save(signedName, bytesOf(signed.file))}>Unduh {signedName}</button></div><p><small>QR versi {signed.qr.version}, {signed.qr.modules}x{signed.qr.modules} modul. <span className="mono">{signed.qr.text.slice(0, 80)}...</span></small></p></div></div></div>}
-          </section>
-          <section className="workflow-card wide">
-            <p className="card-kicker"><span className="card-number">3</span> Pemeriksaan</p>
-            <h2>Verifikasi</h2>
-            <p className="card-intro">Periksa dokumen bertanda tangan dan cocokkan QR dengan kunci publiknya.</p>
-            <div className="full-field"><label htmlFor="verify-file">Berkas PDF bertanda tangan</label><input id="verify-file" type="file" accept="application/pdf,.pdf" onChange={(e) => setVFile(e.target.files?.[0] ?? null)} /></div>
-            <div className="full-field"><label htmlFor="qr">Isi QR-Code</label><textarea id="qr" placeholder="Tautan atau payload QR akan terisi otomatis saat dibuka dari hasil pindaian." value={qr} onChange={(e) => setQr(e.target.value)} /></div>
-            <div className="field"><label htmlFor="pub-mode">Sumber kunci publik</label><select id="pub-mode" value={pubMode} onChange={(e) => setPubMode(e.target.value as 'auto' | 'vault' | 'paste')}>
-              <option value="auto">Otomatis dari berkas</option><option value="vault">Kunci terdaftar</option><option value="paste">Tempel PEM / raw</option>
-            </select></div>
-            {pubMode === 'vault' && <div className="field"><label htmlFor="vault-key">Kunci terdaftar</label><select id="vault-key" value={vaultKey} onChange={(e) => setVaultKey(e.target.value)}>{keys.map((k) => <option key={k.id} value={k.id}>{k.name} ({k.fp})</option>)}</select></div>}
-            {pubMode === 'paste' && <div className="full-field"><label htmlFor="pem">Kunci publik</label><textarea id="pem" className="mono" placeholder="-----BEGIN PUBLIC KEY----- ..." value={pem} onChange={(e) => setPem(e.target.value)} /></div>}
-            <button onClick={verify}>Verifikasi dokumen</button>
-            {vErr && <p className="error" role="alert">{vErr}</p>}
-            {report && <div className={`notice ${report.valid ? 'success' : 'error'}`}><div className={`status ${report.valid ? 'good' : 'bad'}`}>{report.valid ? '✓ SAH' : '✗ TIDAK SAH'}</div><div>{report.message}</div>
-              {report.signers.length > 0 && <div className="key-list"><table><thead><tr><th>#</th><th>Penandatangan</th><th>Waktu</th><th>Hash</th><th>Signature</th><th>QR</th><th>Terdaftar</th><th>Keterangan</th></tr></thead><tbody>
-                {report.signers.map((s) => <tr key={s.index}><td>{s.index}</td><td>{s.name}, {s.title}, {s.org}</td><td>{s.time}</td><td>{ok(s.hashOk)}</td><td>{ok(s.sigOk)}</td><td>{ok(s.qrOk)}</td><td>{s.registeredAs ?? 'tidak'}</td><td>{s.reason}</td></tr>)}
-              </tbody></table></div>}
-              {report.qr && <p>QR-Code: <b>{report.qr.ok ? 'sah' : 'tidak sah'}</b>, {report.qr.reason}{report.qr.meta ? ` (${report.qr.meta.name}, ${report.qr.meta.title}, ${report.qr.meta.org}, ${report.qr.meta.time})` : ''}{report.qr.registeredAs ? `, kunci terdaftar: ${report.qr.registeredAs}` : ''}</p>}
-            </div>}
+            {cameraOn && <div className="camera-scanner"><video ref={videoRef} autoPlay playsInline muted /><button type="button" className="button-secondary" onClick={() => setCameraOn(false)}>Hentikan</button></div>}
+            {cameraError && <p className={cameraOn ? 'notice' : 'scanner-status'}>{cameraError}</p>}
+            <div className="full-field"><label htmlFor="qr">PAYLOAD QR (OPSIONAL)</label><textarea id="qr" value={qr} onChange={(e) => setQr(e.target.value)} /></div>
+            <button className="primary-wide" onClick={verify} disabled={verifyBusy}>{verifyBusy ? 'Memeriksa...' : 'Verifikasi dokumen'}</button>
+            {vErr && <p className="error">{vErr}</p>}
+            {report && <div className={`notice ${report.valid ? 'success' : 'error'}`}>{report.valid ? '✓ SAH' : '✗ TIDAK SAH'} - {report.message}</div>}
           </section>
         </div>
         <p className="footer-note">ECDSA P-256 · SHA-256 · QR verification</p>

@@ -313,7 +313,6 @@ export default function Home() {
             </div>
             {cameraOn && <div className="camera-scanner"><video ref={videoRef} autoPlay playsInline muted /><button type="button" className="button-secondary" onClick={() => setCameraOn(false)}>Hentikan</button></div>}
             {cameraError && <p className={cameraOn ? 'notice' : 'scanner-status'}>{cameraError}</p>}
-            <div className="full-field"><label htmlFor="qr">PAYLOAD QR (OPSIONAL)</label><textarea id="qr" value={qr} onChange={(e) => setQr(e.target.value)} /></div>
             <button className="primary-wide" onClick={verify} disabled={verifyBusy}>{verifyBusy ? 'Memeriksa...' : 'Verifikasi dokumen'}</button>
             {vErr && <p className="error">{vErr}</p>}
             {report && <div className={`notice ${report.valid ? 'success' : 'error'}`}>{report.valid ? '✓ SAH' : '✗ TIDAK SAH'} - {report.message}</div>}

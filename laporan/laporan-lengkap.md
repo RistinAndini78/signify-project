@@ -248,9 +248,11 @@ Pada deployment yang memiliki `BLOB_READ_WRITE_TOKEN`, `vault.ts` memilih `BlobK
 
 ## 4.5 Finalisasi Multi-Signature
 
-`signDocumentChain()` menerima PDF asli dan 2 sampai 12 objek signer. Fungsi ini membuat satu ID dokumen dan satu signature QR untuk tiap signer, menambahkan halaman QR dari PDF asli, lalu membuat blok signature berantai untuk semua signer. Semua QR dibuat sebelum hash PDF dihitung agar perubahan halaman QR tidak membatalkan signature sebelumnya.
+Alur multi-signature dimulai dengan pemilihan satu PDF asli. Pengguna kemudian memasukkan setiap signer secara bergiliran dengan file kunci `.dsk`, passphrase, nama, jabatan, dan institusi. Aplikasi menerima 2 sampai 12 signer dan menolak penggunaan kunci yang sama lebih dari satu kali.
 
-Pada route `api/sign`, finalisasi menerima daftar signer, file `.dsk`, dan passphrase per signer dalam satu request. Antarmuka `/multi-sign` menahan file dan passphrase hanya pada state halaman, kemudian mengirimkannya sekali saat finalisasi. Data staged tidak ditulis ke local storage, session storage, atau penyimpanan server; memuat ulang halaman akan menghapus draft. Setelah body PDF lengkap, API membuat satu blok signature untuk setiap signer.
+Sebelum proses final dimulai, file kunci dan passphrase berada sementara di memori halaman. Aplikasi tidak menuliskannya ke local storage, session storage, atau penyimpanan server. Setelah pengguna memilih finalisasi, data para signer dikirim dalam satu request ke endpoint `api/sign`. Jika halaman dimuat ulang sebelum finalisasi, data sementara tersebut hilang dan pengguna perlu memasukkannya kembali.
+
+Layanan `signDocumentChain()` membuat satu ID dokumen dan satu payload QR bertanda tangan untuk setiap signer. `addQrPages()` menambahkan halaman pengesahan ke PDF asli dengan kapasitas maksimal empat QR pada setiap halaman. Setelah seluruh QR berada di dalam PDF, layanan menghitung hash atas isi final tersebut dan menghasilkan blok signature secara berurutan. Dengan urutan ini, setiap blok berikutnya melindungi byte dokumen serta blok signature yang telah dibuat sebelumnya. Hasil akhirnya memuat jumlah QR dan blok signature yang sama dengan jumlah signer.
 
 ## 4.6 Verifikasi
 

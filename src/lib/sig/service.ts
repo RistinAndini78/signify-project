@@ -4,7 +4,7 @@ import { b64u, fromB64u, sha256hex } from './encoding';
 import { Block, Located, Meta, docMessage, encodeBlock, metaOf, parseBlocks, qrMessage } from './format';
 import { fingerprint, publicFromRaw, rawPublic, signMessage, verifyMessage } from './keys';
 import { QrData, parseQr, qrPng, qrText, verifyQr } from './qr';
-import { addQrPage, isPdf } from './pdfstamp';
+import { addQrPage, addQrPages, isPdf } from './pdfstamp';
 
 export class SignError extends Error {}
 
@@ -22,11 +22,13 @@ export interface SignResult {
     version: number;
     bytes: number;
     secondary?: { signer: { name: string; title: string; org: string; time: string }; ok: true; png: Buffer; text: string };
+    codes?: { signer: { name: string; title: string; org: string; time: string; fp: string }; png: Buffer; text: string; modules: number; version: number; bytes: number }[];
   };
 }
 
 export async function signDocumentChain(file: Buffer, signers: Signer[], origin: string, now: Date = new Date()): Promise<SignResult> {
-  if (signers.length !== 2 || !isPdf(file) || parseBlocks(file).length > 0) throw new SignError('finalization requires an unsigned PDF and exactly two signers');
+  if (signers.length < 2 || signers.length > 12) throw new SignError('multi-signature requires between 2 and 12 signers');
+  if (!isPdf(file) || parseBlocks(file).length > 0) throw new SignError('finalization requires an unsigned PDF');
   const docId = b64u(randomBytes(12));
   const entries = await Promise.all(signers.map(async (signer, index) => {
     const pubRaw = rawPublic(signer.publicKey), fp = fingerprint(pubRaw);
@@ -35,13 +37,15 @@ export async function signDocumentChain(file: Buffer, signers: Signer[], origin:
     const text = qrText({ id: docId, fp, meta, sig: b64u(qs) }, origin);
     return { signer, pubRaw, fp, meta, qs, text, qr: await qrPng(text) };
   }));
-  let body = await addQrPage(file, {
-    qrPng: entries[0].qr.png,
-    title: 'Halaman Pengesahan Tanda Tangan Digital',
-    url: entries[0].text,
-    lines: [`Ditandatangani oleh: ${entries[0].meta.name}`, `Jabatan: ${entries[0].meta.title}`, `Institusi: ${entries[0].meta.org}`, `Waktu: ${entries[0].meta.time}`, `ID dokumen: ${docId}`, `Sidik jari kunci publik: ${entries[0].fp}`, 'Algoritma: ECDSA P-256 dengan SHA-256'],
-    secondary: { qrPng: entries[1].qr.png, title: `Signer kedua: ${entries[1].meta.name}`, lines: [`Jabatan: ${entries[1].meta.title}`, `Institusi: ${entries[1].meta.org}`, `Waktu: ${entries[1].meta.time}`, `Sidik jari: ${entries[1].fp}`] },
-  });
+  if (new Set(entries.map((entry) => entry.fp)).size !== entries.length) throw new SignError('each signer must use a different key');
+  let body = await addQrPages(file, entries.map((entry) => ({
+    qrPng: entry.qr.png,
+    name: entry.meta.name,
+    title: entry.meta.title,
+    org: entry.meta.org,
+    time: entry.meta.time,
+    fp: entry.fp,
+  })), docId);
   let lastBlock: Block | undefined;
   for (const entry of entries) {
     const h = sha256hex(body);
@@ -49,8 +53,23 @@ export async function signDocumentChain(file: Buffer, signers: Signer[], origin:
     lastBlock = { v: 1, id: docId, alg: 'ES256', h, n: entry.meta.name, t: entry.meta.title, o: entry.meta.org, d: entry.meta.time, pk: b64u(entry.pubRaw), sig: b64u(sig), qs: b64u(entry.qs) };
     body = Buffer.concat([body, encodeBlock(lastBlock)]);
   }
-  const latest = entries[1];
-  return { file: body, docId, block: lastBlock!, signers: 2, qr: { png: latest.qr.png, text: latest.text, modules: latest.qr.modules, version: latest.qr.version, bytes: latest.qr.bytes, secondary: { signer: { name: entries[0].meta.name, title: entries[0].meta.title, org: entries[0].meta.org, time: entries[0].meta.time }, ok: true, png: entries[0].qr.png, text: entries[0].text } } };
+  const latest = entries[entries.length - 1];
+  const previous = entries[entries.length - 2];
+  return {
+    file: body,
+    docId,
+    block: lastBlock!,
+    signers: entries.length,
+    qr: {
+      png: latest.qr.png,
+      text: latest.text,
+      modules: latest.qr.modules,
+      version: latest.qr.version,
+      bytes: latest.qr.bytes,
+      secondary: { signer: { name: previous.meta.name, title: previous.meta.title, org: previous.meta.org, time: previous.meta.time }, ok: true, png: previous.qr.png, text: previous.text },
+      codes: entries.map((entry) => ({ signer: { name: entry.meta.name, title: entry.meta.title, org: entry.meta.org, time: entry.meta.time, fp: entry.fp }, png: entry.qr.png, text: entry.text, modules: entry.qr.modules, version: entry.qr.version, bytes: entry.qr.bytes })),
+    },
+  };
 }
 
 export interface SignerReport {

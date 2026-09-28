@@ -12,11 +12,49 @@ export async function POST(req: Request) {
   if (!allow(`sign:${clientKey(req)}`, 40)) return json({ error: 'too many requests' }, 429);
   if (tooLarge(req)) return json({ error: `file exceeds ${MAX_UPLOAD / 1048576} MB` }, 413);
   const form = await req.formData().catch(() => null);
+  if (!form) return json({ error: 'form data tidak valid' }, 400);
   const keyId = String(form?.get('keyId') ?? ''), passphrase = String(form?.get('passphrase') ?? '');
   const file = form?.get('file'), dsk = form?.get('dsk');
-  if (!(file instanceof File) || !passphrase || (!(dsk instanceof File) && !keyId)) return json({ error: 'PDF, file .dsk atau kunci terdaftar, dan passphrase wajib diisi' }, 400);
+  if (!(file instanceof File)) return json({ error: 'PDF wajib diisi' }, 400);
   if (!file.name.toLowerCase().endsWith('.pdf')) return json({ error: 'hanya file PDF yang dapat ditandatangani' }, 400);
   if (file.size > MAX_FILE) return json({ error: `file exceeds ${MAX_FILE / 1048576} MB` }, 413);
+  const signerJson = form?.get('signers');
+  if (signerJson !== null && signerJson !== undefined) {
+    if (typeof signerJson !== 'string') return json({ error: 'daftar signer tidak valid' }, 400);
+    let descriptors: unknown;
+    try { descriptors = JSON.parse(signerJson); } catch { return json({ error: 'format daftar signer tidak valid' }, 400); }
+    if (!Array.isArray(descriptors) || descriptors.length < 2 || descriptors.length > 12) return json({ error: 'multi-signature memerlukan 2 sampai 12 signer' }, 400);
+    try {
+      const signers = [];
+      for (let index = 0; index < descriptors.length; index += 1) {
+        const descriptor = descriptors[index] as { name?: unknown; title?: unknown; org?: unknown } | null;
+        if (!descriptor || typeof descriptor !== 'object') return json({ error: `data signer ${index + 1} tidak valid` }, 400);
+        const signerFile = form.get(`dsk-${index}`), signerPassphrase = form.get(`passphrase-${index}`);
+        if (!(signerFile instanceof File) || !signerPassphrase || typeof signerPassphrase !== 'string') return json({ error: `file .dsk dan passphrase signer ${index + 1} wajib diisi` }, 400);
+        if (!signerFile.name.toLowerCase().endsWith('.dsk') || signerFile.size > 64 * 1024) return json({ error: `file .dsk signer ${index + 1} tidak valid` }, 400);
+        let portable: unknown;
+        try { portable = JSON.parse(await signerFile.text()); } catch { return json({ error: `isi file .dsk signer ${index + 1} tidak valid` }, 400); }
+        const portableFp = portable && typeof portable === 'object' ? (portable as { fp?: unknown }).fp : null;
+        if (typeof portableFp === 'string' && !allow(`unlock:${clientKey(req)}:${portableFp}`, 40)) return json({ error: 'terlalu banyak percobaan passphrase; coba lagi dalam satu menit' }, 429);
+        const identity = cleanIdentity({ name: descriptor.name, title: descriptor.title, org: descriptor.org });
+        signers.push({ ...unlockPortableKey(portable, signerPassphrase), ...identity });
+      }
+      const result = await signDocumentChain(Buffer.from(await file.arrayBuffer()), signers, originOf(req));
+      return json({
+        file: result.file.toString('base64'), bytes: result.file.length, docId: result.docId, signers: result.signers,
+        qr: {
+          png: result.qr.png.toString('base64'), text: result.qr.text, modules: result.qr.modules, version: result.qr.version, bytes: result.qr.bytes,
+          secondary: result.qr.secondary ? { ...result.qr.secondary, png: result.qr.secondary.png.toString('base64') } : undefined,
+          codes: result.qr.codes?.map((code) => ({ ...code, png: code.png.toString('base64') })),
+        },
+      });
+    } catch (error) {
+      if (error instanceof PassphraseError) return json({ error: 'passphrase salah atau salah satu file .dsk rusak' }, 401);
+      if (error instanceof VaultError || error instanceof SignError || error instanceof StampError) return json({ error: error.message }, 400);
+      throw error;
+    }
+  }
+  if (!passphrase || (!(dsk instanceof File) && !keyId)) return json({ error: 'file .dsk atau kunci terdaftar dan passphrase wajib diisi' }, 400);
   if (dsk instanceof File) {
     if (!dsk.name.toLowerCase().endsWith('.dsk')) return json({ error: 'file kunci harus berformat .dsk' }, 400);
     if (dsk.size > 64 * 1024) return json({ error: 'file .dsk terlalu besar atau tidak valid' }, 413);

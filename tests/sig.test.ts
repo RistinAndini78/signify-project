@@ -258,6 +258,29 @@ describe('wrong key and forged data', () => {
 });
 
 describe('several signers', () => {
+  it('finalizes matching QR codes and valid chained signatures for two through six signers', async () => {
+    for (let count = 2; count <= 6; count += 1) {
+      const signers = Array.from({ length: count }, (_, index) => mk(`Signer ${index + 1}`, 'Dosen'));
+      const result = await signDocumentChain(await pdf(1), signers, ORIGIN);
+      const report = verifyDocument(result.file);
+      expect(result.qr.codes).toHaveLength(count);
+      expect(report.valid).toBe(true);
+      expect(report.signers).toHaveLength(count);
+      for (const code of result.qr.codes ?? []) {
+        const qrReport = verifyDocument(result.file, { qr: code.text });
+        expect(qrReport.qr).toMatchObject({ ok: true });
+      }
+      expect((await PDFDocument.load(result.file)).getPageCount()).toBe(1 + Math.ceil(count / 4));
+    }
+  });
+
+  it('rejects signer counts outside 2–12 and duplicate signing keys', async () => {
+    const original = await pdf(1);
+    await expect(signDocumentChain(original, [alice], ORIGIN)).rejects.toThrow('between 2 and 12');
+    await expect(signDocumentChain(original, Array.from({ length: 13 }, () => alice), ORIGIN)).rejects.toThrow('between 2 and 12');
+    await expect(signDocumentChain(original, [alice, alice], ORIGIN)).rejects.toThrow('different key');
+  });
+
   it('builds the final PDF with two QR codes before creating both valid signature blocks', async () => {
     const result = await signDocumentChain(await pdf(1), [alice, bob], ORIGIN);
     const report = verifyDocument(result.file);

@@ -11,6 +11,6 @@ Asisten AI (Claude Code) dipakai untuk membantu belajar dan menulis kode, sesuai
 | Uji unit (`tests/`), termasuk uji setiap byte | Claude Code | Menulis kasus uji | `<anggota>` |
 | Skrip pengujian dan grafik (`scripts/`) | Claude Code | Menulis skrip | `<anggota>` |
 | Review keamanan (THR-001) dan perbaikan | Claude Code | Menemukan 3 temuan lewat uji byte dan menulis perbaikan | `<anggota>` |
-| Draf laporan (`laporan/laporan.md`) | Claude Code | Menyusun kerangka, tabel dari hasil uji, analisis awal | `<anggota>` |
+| Laporan (`laporan/laporan-lengkap.md`) | Claude Code | Menyusun struktur, tabel dari hasil uji, dan analisis awal | `<anggota>` |
 
 Yang dikerjakan sendiri oleh anggota: `<pemilihan topik dan pengayaan, PDF demo asli, menjalankan pengujian di laptop demo, mencoba pindai QR dengan ponsel, memeriksa angka dan analisis, referensi lewat Mendeley, video demo, presentasi>`.

@@ -134,7 +134,7 @@ export default function MultiSignPage() {
     <main className="app-shell">
       <div className="app-container">
         <header className="hero">
-          <p className="eyebrow">Siliwangi-Disign</p>
+          <p className="eyebrow">Signify</p>
           <h1>Multi-tanda tangan.</h1>
           <p className="hero-copy">Kumpulkan signer, lalu finalisasi PDF dengan satu QR untuk setiap signer dan signature yang terverifikasi.</p>
           <a className="hero-link" href="/">Kembali ke tanda tangan dan verifikasi</a>
@@ -155,8 +155,10 @@ export default function MultiSignPage() {
               <div className="field"><label htmlFor="multi-name">Nama</label><input id="multi-name" placeholder="Nama lengkap signer" value={identity.name} onChange={(event) => setIdentity({ ...identity, name: event.target.value })} /></div>
               <div className="field"><label htmlFor="multi-title">Jabatan</label><input id="multi-title" placeholder="Jabatan signer" value={identity.title} onChange={(event) => setIdentity({ ...identity, title: event.target.value })} /></div>
               <div className="field"><label htmlFor="multi-org">Institusi</label><input id="multi-org" placeholder="Nama institusi" value={identity.org} onChange={(event) => setIdentity({ ...identity, org: event.target.value })} /></div>
-              <button onClick={addSigner} disabled={busy}>{busy ? 'Menyiapkan signer...' : `Tambah signer ${signerNumber}`}</button>
-              {staged.length >= 2 && <button className="button-secondary" onClick={finalizeSignatures} disabled={busy}>{busy ? 'Membuat PDF final...' : `Finalisasi ${staged.length} signer`}</button>}
+              <div className="multi-sign-actions">
+                <button onClick={addSigner} disabled={busy}>{busy ? 'Menyiapkan signer...' : `Tambah signer ${signerNumber}`}</button>
+                {staged.length >= 2 && <button className="button-secondary" onClick={finalizeSignatures} disabled={busy}>{busy ? 'Membuat PDF final...' : `Finalisasi ${staged.length} signer`}</button>}
+              </div>
             </>}
             {error && <p className="error" role="alert">{error}</p>}
             {rows.length > 0 && <button className="button-secondary reset-chain" onClick={startNewChain}>Buang draft / mulai rantai baru</button>}

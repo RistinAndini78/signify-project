@@ -14,7 +14,7 @@ Aplikasi web (Next.js + TypeScript) untuk menandatangani dokumen elektronik dan 
 
 - **Algoritma**: ECDSA P-256 dengan SHA-256 (Node `crypto`); tanda tangan atas hash SHA-256 berkas, 64 byte.
 - **Brankas kunci**: kunci privat disimpan terenkripsi (AES-256-GCM, kunci dari kata sandi dengan scrypt) di `data/keystore/`; tidak pernah di kode sumber atau repositori.
-- **QR-Code**: PDF mendapat halaman terakhir berisi QR-Code dan keterangan penandatangan. QR memuat JSON mandiri dengan metadata (nama, jabatan, institusi, waktu), ID dokumen, fingerprint kunci, dan tanda tangan; QR lama berbentuk tautan tetap dapat diverifikasi.
+- **QR-Code**: PDF mendapat halaman pengesahan dengan satu QR per signer. Pada multi-signature, hingga empat QR ditempatkan pada setiap halaman dan halaman tambahan dibuat bila diperlukan. Setiap QR memuat JSON mandiri dengan metadata (nama, jabatan, institusi, waktu), ID dokumen, fingerprint kunci, dan tanda tangan; QR lama berbentuk tautan tetap dapat diverifikasi.
 - **Blok tanda tangan**: `\n%KRIPTO-SIG-V1 <base64url JSON>\n` ditambahkan di akhir berkas (berisi hash, metadata, kunci publik, tanda tangan dokumen dan QR); berkas non-PDF juga didukung.
 - **Verifikasi**: menolak dokumen yang diubah (satu byte), kunci publik yang tidak cocok, dan QR yang dipalsukan; melaporkan apakah kunci terdaftar.
 - **Pengayaan**: beberapa penandatangan pada satu dokumen (tiap blok menandatangani semua byte sebelumnya).
@@ -51,9 +51,10 @@ Tanpa `BLOB_READ_WRITE_TOKEN`, aplikasi memakai `data/keystore` lokal. Storage l
 
 ## Contoh penggunaan
 1. **Buat kunci**: isi nama, jabatan, institusi, dan kata sandi kunci (minimal 10 karakter).
-2. **Tanda tangani**: pilih kunci, masukkan kata sandi, pilih PDF; unduh berkas `.signed.pdf` dan lihat QR-Code. Hanya berkas PDF yang diterima. Berkas yang sudah ditandatangani dapat ditandatangani penandatangan berikutnya.
-3. **Verifikasi**: unggah berkas bertanda tangan; tempel JSON hasil scan QR. Tabel menunjukkan tiap penandatangan.
-4. **Uji**: ubah satu karakter berkas dan verifikasi lagi (gagal); pilih kunci publik lain (gagal); ubah isi QR (gagal).
+2. **Tanda tangani**: pilih file `.dsk`, masukkan passphrase dan identitas, lalu pilih PDF; unduh berkas `.signed.pdf` dan lihat QR-Code.
+3. **Multi-signature**: pilih PDF asli, tambahkan 2 sampai 12 signer dengan file `.dsk` masing-masing, lalu finalisasi. PDF final memiliki satu QR untuk setiap signer dan blok signature berantai. File `.dsk` serta passphrase hanya disimpan sementara di memori halaman sampai finalisasi; refresh halaman menghapus draft.
+4. **Verifikasi**: unggah berkas bertanda tangan; tempel JSON hasil scan QR. Tabel menunjukkan tiap penandatangan.
+5. **Uji**: ubah satu karakter berkas dan verifikasi lagi (gagal); pilih kunci publik lain (gagal); ubah isi QR (gagal).
 
 API dengan curl:
 ```bash
@@ -73,7 +74,7 @@ Pengujian wajib dilakukan langsung dari halaman **Uji Ketahanan** agar seluruh h
 
 Pengujian unit untuk fungsi inti tetap tersedia sebagai pemeriksaan pengembang:
 ```bash
-npm test          # 19 unit test fungsi inti
+npm test          # unit test fungsi inti
 npm run charts    # grafik SVG dari hasil benchmark lama di laporan/gambar/
 ```
 Hasil pengujian wajib yang dikumpulkan berasal dari tombol halaman dan dapat disimpan di `data-uji/hasil/`.

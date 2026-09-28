@@ -107,6 +107,9 @@ td code, .mono { font-size: 0.78rem; overflow-wrap: anywhere; }
 .result-actions { display: grid; gap: 8px; margin: 12px 0; }
 .button-secondary { color: var(--maroon); background: transparent; border: 1px solid var(--maroon); }
 .button-secondary:hover { color: white; background: var(--maroon-dark); }
+.multi-sign-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; }
+.multi-sign-actions button { min-height: 50px; }
+.reset-chain { margin-top: 12px; }
 .status { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 1.05rem; font-weight: 700; }
 .status.good { color: var(--maroon); }
 .status.bad { color: var(--danger); }
@@ -212,4 +215,7 @@ td code, .mono { font-size: 0.78rem; overflow-wrap: anywhere; }
   .test-file, .test-result { align-items: stretch; flex-direction: column; }
   .qr-image { width: min(100%, 190px); }
   .multi-result .qr-image { justify-self: start; }
+  .multi-sign-actions { gap: 8px; }
+  .multi-sign-actions button { flex: 1 1 100%; }
+  .reset-chain { width: 100%; }
 }

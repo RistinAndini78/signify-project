@@ -1,5 +1,5 @@
 import { MAX_UPLOAD, allow, clientKey, json, tooLarge } from '../../../lib/http';
-import { PassphraseError, publicFromRaw } from '../../../lib/sig/keys';
+import { PassphraseError, fingerprint, publicFromRaw, rawPublic } from '../../../lib/sig/keys';
 import { cleanIdentity, unlockPortableKey, VaultError } from '../../../lib/sig/keystore';
 import { StampError } from '../../../lib/sig/pdfstamp';
 import { SignError, signDocument, signDocumentChain } from '../../../lib/sig/service';
@@ -42,6 +42,11 @@ export async function POST(req: Request) {
       const result = await signDocumentChain(Buffer.from(await file.arrayBuffer()), signers, originOf(req));
       return json({
         file: result.file.toString('base64'), bytes: result.file.length, docId: result.docId, signers: result.signers,
+        publicKeys: signers.map((signer) => ({
+          name: signer.name,
+          fp: fingerprint(rawPublic(signer.publicKey)),
+          pem: signer.publicKey.export({ format: 'pem', type: 'spki' }).toString(),
+        })),
         qr: {
           png: result.qr.png.toString('base64'), text: result.qr.text, modules: result.qr.modules, version: result.qr.version, bytes: result.qr.bytes,
           secondary: result.qr.secondary ? { ...result.qr.secondary, png: result.qr.secondary.png.toString('base64') } : undefined,

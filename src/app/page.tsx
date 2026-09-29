@@ -4,9 +4,9 @@ import jsQR from 'jsqr';
 import { useEffect, useRef, useState } from 'react';
 
 interface Key { id: string; name: string; title: string; org: string; created: string; fp: string; publicKey: string }
-interface Signer { index: number; name: string; title: string; org: string; time: string; fp: string; hashOk: boolean; sigOk: boolean; qrOk: boolean; keyMatches: boolean; valid: boolean; registeredAs: string | null; reason: string }
+interface Signer { index: number; name: string; title: string; org: string; time: string; fp: string; hashOk: boolean; sigOk: boolean; qrOk: boolean; keyMatches: boolean; externalKeyMatches: boolean | null; valid: boolean; registeredAs: string | null; reason: string }
 interface Report {
-  valid: boolean; blocks: number; message: string; signers: Signer[];
+  valid: boolean; blocks: number; message: string; signers: Signer[]; unmatchedPublicKeys: string[];
   qr: { ok: boolean; reason: string; meta?: { name: string; title: string; org: string; time: string }; registeredAs?: string | null } | null;
 }
 interface Signed { file: string; bytes: number; docId: string; signers: number; qr: { png: string; text: string; modules: number; version: number; bytes: number } }
@@ -44,8 +44,8 @@ export default function Home() {
 
   const [vFile, setVFile] = useState<File | null>(null);
   const [qr, setQr] = useState('');
-  const [pemFileContents, setPemFileContents] = useState('');
-  const [pemFileName, setPemFileName] = useState('');
+  const [pemFileContents, setPemFileContents] = useState<string[]>([]);
+  const [pemFileNames, setPemFileNames] = useState<string[]>([]);
   const [pem, setPem] = useState('');
   const [report, setReport] = useState<Report | null>(null);
   const [vErr, setVErr] = useState('');
@@ -166,12 +166,11 @@ export default function Home() {
     setVErr(''); setReport(null);
     if (!vFile) { setVErr('Pilih file PDF hasil tanda tangan terlebih dahulu.'); return; }
     if (!vFile.name.toLowerCase().endsWith('.pdf')) { setVErr('Hanya file PDF yang dapat diverifikasi.'); return; }
-    const publicKeyText = pem.trim() || pemFileContents.trim();
-    if (!publicKeyText) { setVErr('Unggah file public key .pem atau tempel public key pada kolom teks.'); return; }
+    const publicKeys = [...pemFileContents, ...(pem.trim() ? [pem.trim()] : [])];
     const f = new FormData();
     f.set('file', vFile);
     if (qr) f.set('qr', qr);
-    f.set('pubkey', publicKeyText);
+    f.set('pubkeys', JSON.stringify(publicKeys));
     setVerifyBusy(true);
     try {
       const r = await fetch('/api/verify', { method: 'POST', body: f });
@@ -184,14 +183,15 @@ export default function Home() {
     }
   }
 
-  async function readVerifyPem(file: File | null) {
-    setPemFileName(''); setPemFileContents(''); setReport(null); setVErr('');
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.pem')) { setVErr('Pilih file public key dengan ekstensi .pem.'); return; }
-    if (file.size > 16 * 1024) { setVErr('File public key terlalu besar.'); return; }
+  async function readVerifyPemList(fileList: FileList | null) {
+    setPemFileNames([]); setPemFileContents([]); setReport(null); setVErr('');
+    const files = Array.from(fileList ?? []);
+    if (files.length > 12) { setVErr('Pilih maksimal 12 file public key .pem.'); return; }
+    if (files.some((file) => !file.name.toLowerCase().endsWith('.pem'))) { setVErr('Semua public key harus berformat .pem.'); return; }
+    if (files.some((file) => file.size > 16 * 1024)) { setVErr('Setiap file public key maksimal 16 KB.'); return; }
     try {
-      setPemFileContents(await file.text());
-      setPemFileName(file.name);
+      setPemFileContents(await Promise.all(files.map((file) => file.text())));
+      setPemFileNames(files.map((file) => file.name));
     } catch {
       setVErr('File public key tidak dapat dibaca.');
     }
@@ -307,11 +307,11 @@ export default function Home() {
           <section className="workflow-card wide">
             <p className="card-kicker"><span className="card-number">3</span> Verifikasi</p>
             <h2>Verifikasi Dokumen</h2>
-            <p className="card-intro">Unggah PDF bertanda tangan dan tempel public key penandatangan untuk memeriksa integritas tanda tangan.</p>
+            <p className="card-intro">Verifikasi semua signature dalam PDF, termasuk dokumen multi-sign. Public key di dalam signature block dipakai untuk pemeriksaan kriptografis; PEM eksternal opsional untuk mencocokkan identitas tiap signer.</p>
             <div className="full-field"><label htmlFor="verify-file">PDF BERTANDA TANGAN</label><input id="verify-file" type="file" accept="application/pdf,.pdf" onChange={(e) => { setVFile(e.target.files?.[0] ?? null); setReport(null); }} /></div>
             {vFile && <p className="selected-file">PDF: <b>{vFile.name}</b></p>}
-            <div className="full-field"><label htmlFor="verify-pem-file">PUBLIC KEY PENANDATANGAN (.PEM)</label><input id="verify-pem-file" type="file" accept=".pem,application/x-pem-file,text/plain" onChange={(e) => void readVerifyPem(e.target.files?.[0] ?? null)} />{pemFileName && <small className="selected-file">File: <b>{pemFileName}</b></small>}</div>
-            <details className="optional-pem"><summary>Atau tempel public key sebagai teks</summary><div className="full-field"><label htmlFor="pem">PUBLIC KEY PEM / RAW</label><textarea id="pem" className="mono" placeholder="-----BEGIN PUBLIC KEY----- ..." value={pem} onChange={(e) => { setPem(e.target.value); setReport(null); }} /></div></details>
+            <div className="full-field"><label htmlFor="verify-pem-file">PUBLIC KEY (.PEM), OPSIONAL, MAKS. 12 FILE</label><input id="verify-pem-file" type="file" multiple accept=".pem,application/x-pem-file,text/plain" onChange={(e) => void readVerifyPemList(e.target.files)} />{pemFileNames.length > 0 && <small className="selected-file">File: <b>{pemFileNames.join(', ')}</b></small>}</div>
+            <details className="optional-pem"><summary>Atau tempel satu public key sebagai teks</summary><div className="full-field"><label htmlFor="pem">PUBLIC KEY PEM / RAW</label><textarea id="pem" className="mono" placeholder="-----BEGIN PUBLIC KEY----- ..." value={pem} onChange={(e) => { setPem(e.target.value); setReport(null); }} /></div></details>
             <div className="dotted-rule" />
             <div className="scanner-heading">
               <div><b>QR VERIFIKASI</b><small>Opsional.</small></div>
@@ -321,7 +321,17 @@ export default function Home() {
             {cameraError && <p className={cameraOn ? 'notice' : 'scanner-status'}>{cameraError}</p>}
             <button className="primary-wide" onClick={verify} disabled={verifyBusy}>{verifyBusy ? 'Memeriksa...' : 'Verifikasi dokumen'}</button>
             {vErr && <p className="error">{vErr}</p>}
-            {report && <div className={`notice ${report.valid ? 'success' : 'error'}`}>{report.valid ? '✓ SAH' : '✗ TIDAK SAH'} - {report.message}</div>}
+            {report && <>
+              <div className={`notice ${report.valid ? 'success' : 'error'}`}>{report.valid ? '✓ SAH' : '✗ TIDAK SAH'} - {report.message}</div>
+              {report.unmatchedPublicKeys.length > 0 && <p className="error">{report.unmatchedPublicKeys.length} public key tidak cocok dengan signer mana pun dalam dokumen.</p>}
+              {report.signers.length > 0 && <ol className="verification-signer-list">{report.signers.map((signer) => <li key={`${signer.fp}-${signer.index}`}>
+                <div className="verification-signer-heading"><b>{signer.index}. {signer.name}</b><strong className={signer.valid ? 'verification-pass' : 'verification-fail'}>{signer.valid ? 'SAH' : 'TIDAK SAH'}</strong></div>
+                <small>{signer.title} · {signer.org}</small>
+                <div className="verification-checks"><span>Hash {signer.hashOk ? 'cocok' : 'gagal'}</span><span>Signature {signer.sigOk ? 'valid' : 'gagal'}</span><span>QR {signer.qrOk ? 'valid' : 'gagal'}</span><span>.pem {signer.externalKeyMatches === null ? 'tidak diunggah' : signer.externalKeyMatches ? 'cocok' : 'tidak cocok'}</span></div>
+                <small>{signer.registeredAs ? `Terdaftar sebagai ${signer.registeredAs}` : 'Tidak terdaftar di vault lokal'}</small>
+                <code>{signer.fp}</code>
+              </li>)}</ol>}
+            </>}
           </section>
         </div>
         <p className="footer-note">ECDSA P-256 · SHA-256 · QR verification</p>

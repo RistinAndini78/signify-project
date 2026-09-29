@@ -4,11 +4,13 @@ import { useState } from 'react';
 
 interface Signed {
   file: string; bytes: number; docId: string; signers: number;
+  publicKeys: { name: string; fp: string; pem: string }[];
   qr: {
     png: string; text: string; version: number; modules: number;
     codes: { png: string; text: string; version: number; modules: number; bytes: number; signer: { name: string; title: string; org: string; time: string; fp: string } }[];
   };
 }
+interface MultiVerification { valid: boolean; message: string; signers: { index: number; name: string; title: string; org: string; fp: string; hashOk: boolean; sigOk: boolean; qrOk: boolean; externalKeyMatches: boolean | null; valid: boolean; registeredAs: string | null }[] }
 interface SignerRow { name: string; title: string; org: string; fp: string }
 interface StagedSigner extends SignerRow { dskFile: File; passphrase: string }
 
@@ -16,6 +18,12 @@ const fromB64 = (value: string) => Uint8Array.from(atob(value), (char) => char.c
 
 function download(name: string, bytes: Uint8Array) {
   const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+  Object.assign(document.createElement('a'), { href: url, download: name }).click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadText(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/x-pem-file' }));
   Object.assign(document.createElement('a'), { href: url, download: name }).click();
   URL.revokeObjectURL(url);
 }
@@ -31,6 +39,8 @@ export default function MultiSignPage() {
   const [rows, setRows] = useState<SignerRow[]>([]);
   const [staged, setStaged] = useState<StagedSigner[]>([]);
   const [signed, setSigned] = useState<Signed | null>(null);
+  const [verification, setVerification] = useState<MultiVerification | null>(null);
+  const [verificationError, setVerificationError] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -42,6 +52,8 @@ export default function MultiSignPage() {
     }
     setCurrentFile(next);
     setSigned(null);
+    setVerification(null);
+    setVerificationError('');
     setRows([]);
     setStaged([]);
     setKeyMode('create');
@@ -55,6 +67,8 @@ export default function MultiSignPage() {
   function startNewChain() {
     setCurrentFile(null);
     setSigned(null);
+    setVerification(null);
+    setVerificationError('');
     setRows([]);
     setStaged([]);
     setKeyMode('create');
@@ -153,6 +167,17 @@ export default function MultiSignPage() {
       setPassphrase('');
       setPassphraseConfirm('');
       setIdentity({ name: '', title: '', org: '' });
+      try {
+        const verificationForm = new FormData();
+        verificationForm.set('file', new File([fromB64(data.file)], 'multi-sign.signed.pdf', { type: 'application/pdf' }));
+        verificationForm.set('pubkeys', JSON.stringify(data.publicKeys.map((key) => key.pem)));
+        const verificationResponse = await fetch('/api/verify', { method: 'POST', body: verificationForm });
+        const verificationData = await verificationResponse.json() as MultiVerification & { error?: string };
+        if (!verificationResponse.ok) throw new Error(verificationData.error ?? 'Verifikasi otomatis gagal.');
+        setVerification(verificationData);
+      } catch (cause) {
+        setVerificationError(cause instanceof Error ? cause.message : 'Verifikasi otomatis gagal.');
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Finalisasi tanda tangan gagal.');
     } finally {
@@ -210,7 +235,24 @@ export default function MultiSignPage() {
           </aside>
         </div>
 
-        {signed && <section className="workflow-card multi-result"><div><p className="card-kicker"><span className="card-number">3</span> Hasil final</p><h2>{signed.signers} penandatangan tersimpan</h2><p className="card-intro">PDF final memuat satu QR-Code untuk setiap signer dan seluruh signature berantai.</p><button onClick={() => download(downloadName, fromB64(signed.file))}>Unduh PDF bertanda tangan</button></div><div className="qr-pair">{signed.qr.codes.map((code, index) => <div key={`${code.signer.fp}-${index}`}><img className="qr-image" alt={`QR-Code signer ${index + 1}: ${code.signer.name}`} src={`data:image/png;base64,${code.png}`} /><small>{index + 1}. {code.signer.name}</small></div>)}</div></section>}
+        {signed && <>
+          <section className="workflow-card multi-result"><div><p className="card-kicker"><span className="card-number">3</span> Hasil final</p><h2>{signed.signers} penandatangan tersimpan</h2><p className="card-intro">PDF final memuat satu QR-Code untuk setiap signer dan seluruh signature berantai.</p><button onClick={() => download(downloadName, fromB64(signed.file))}>Unduh PDF bertanda tangan</button></div><div className="qr-pair">{signed.qr.codes.map((code, index) => {
+            const publicKey = signed.publicKeys.find((key) => key.fp === code.signer.fp);
+            return <div key={`${code.signer.fp}-${index}`}><img className="qr-image" alt={`QR-Code signer ${index + 1}: ${code.signer.name}`} src={`data:image/png;base64,${code.png}`} /><small>{index + 1}. {code.signer.name}</small>{publicKey && <button type="button" className="button-secondary pem-download" onClick={() => downloadText(`signify-${publicKey.fp}-public.pem`, publicKey.pem)}>Unduh .pem</button>}</div>;
+          })}</div></section>
+          <section className="workflow-card multi-verification">
+            <p className="card-kicker"><span className="card-number">4</span> Verifikasi Multi-sign</p>
+            <h2>{verification ? verification.valid ? 'Semua signature valid' : 'Ada signature tidak valid' : 'Memeriksa signature...'}</h2>
+            {verification && <p className={`notice ${verification.valid ? 'success' : 'error'}`}>{verification.message}</p>}
+            {verificationError && <p className="error" role="alert">{verificationError}</p>}
+            {verification && <ol className="verification-signer-list">{verification.signers.map((signer) => <li key={`${signer.fp}-${signer.index}`}>
+              <div className="verification-signer-heading"><b>{signer.index}. {signer.name}</b><strong className={signer.valid ? 'verification-pass' : 'verification-fail'}>{signer.valid ? 'SAH' : 'TIDAK SAH'}</strong></div>
+              <small>{signer.title} · {signer.org}</small>
+              <div className="verification-checks"><span>Hash {signer.hashOk ? 'cocok' : 'gagal'}</span><span>Signature {signer.sigOk ? 'valid' : 'gagal'}</span><span>QR {signer.qrOk ? 'valid' : 'gagal'}</span><span>.pem {signer.externalKeyMatches ? 'cocok' : 'tidak cocok'}</span></div>
+              <code>{signer.fp}</code>
+            </li>)}</ol>}
+          </section>
+        </>}
         <p className="footer-note">ECDSA P-256 · SHA-256 · QR verification</p>
       </div>
     </main>

@@ -142,6 +142,19 @@ td code, .mono { font-size: 0.78rem; overflow-wrap: anywhere; }
 .signer-list b { padding-top: 5px; color: var(--primary-dark); }
 .signer-list small { margin-top: 4px; color: var(--muted); }
 .signer-list code { margin-top: 7px; color: var(--copper); font-size: 0.76rem; }
+.verification-signer-list { display: grid; gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; }
+.verification-signer-list li { display: grid; gap: 6px; min-width: 0; padding: 13px; border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: 8px; background: #fffdfb; }
+.verification-signer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.verification-signer-heading strong { font-size: 0.72rem; }
+.verification-pass { color: #2f7a4f; }
+.verification-fail { color: var(--danger); }
+.verification-signer-list li > small { color: var(--muted); }
+.verification-signer-list code { color: var(--primary-dark); font-size: 0.76rem; overflow-wrap: anywhere; }
+.verification-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.verification-checks span { padding: 4px 7px; border-radius: 4px; color: var(--primary-dark); background: #eaf2f0; font-size: 0.72rem; }
+.pem-download { width: 100%; padding: 8px 10px; font-size: 0.75rem; }
+.multi-verification { margin-top: 18px; }
+.multi-verification h2 { font-size: 1.4rem; }
 .multi-result { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; margin-top: 18px; }
 .multi-result .qr-pair .qr-image { width: min(100%, 150px); }
 

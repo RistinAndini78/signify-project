@@ -7,7 +7,7 @@ import { PNG } from 'pngjs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { b64u, fromB64u } from '../src/lib/sig/encoding';
 import { encodeBlock, parseBlocks } from '../src/lib/sig/format';
-import { PassphraseError, generateKeyPair, openPrivateKey, parsePublicKey, rawPublic, sealPrivateKey, signMessage, verifyMessage } from '../src/lib/sig/keys';
+import { PassphraseError, fingerprint, generateKeyPair, openPrivateKey, parsePublicKey, rawPublic, sealPrivateKey, signMessage, verifyMessage } from '../src/lib/sig/keys';
 import { createPortableKey, Keystore, unlockPortableKey, VaultError } from '../src/lib/sig/keystore';
 import { isPdf } from '../src/lib/sig/pdfstamp';
 import { parseQr, qrText } from '../src/lib/sig/qr';
@@ -165,6 +165,44 @@ describe('sign and verify a PDF', () => {
     expect(wrongKeyReport).toMatchObject({ valid: false, signers: [{ keyMatches: false }], qr: { ok: false } });
   });
 
+  it('returns each multi-signer PEM and verifies them by fingerprint through the API', async () => {
+    const passphrases = ['passphrase-multi-a', 'passphrase-multi-b'];
+    const generated = passphrases.map((passphrase) => createPortableKey(passphrase));
+    const form = new FormData();
+    form.set('file', new File([Uint8Array.from(await pdf(1))], 'multi.pdf', { type: 'application/pdf' }));
+    form.set('signers', JSON.stringify([
+      { name: 'Signer A', title: 'Ketua', org: 'UNSIL' },
+      { name: 'Signer B', title: 'Sekretaris', org: 'UNSIL' },
+    ]));
+    generated.forEach((entry, index) => {
+      form.set(`dsk-${index}`, new File([JSON.stringify(entry.key)], `signer-${index + 1}.dsk`, { type: 'application/json' }));
+      form.set(`passphrase-${index}`, passphrases[index]);
+    });
+    const signedResponse = await signRequest(new Request('http://localhost/api/sign', { method: 'POST', body: form }));
+    expect(signedResponse.status).toBe(200);
+    const signed = await signedResponse.json() as { file: string; publicKeys: { name: string; fp: string; pem: string }[] };
+    expect(signed.publicKeys.map((key) => key.fp)).toEqual(generated.map((entry) => entry.key.fp));
+    expect(signed.publicKeys.map((key) => key.pem)).toEqual(generated.map((entry) => entry.publicPem));
+
+    const verifyForm = new FormData();
+    verifyForm.set('file', new File([Uint8Array.from(Buffer.from(signed.file, 'base64'))], 'multi.signed.pdf', { type: 'application/pdf' }));
+    verifyForm.set('pubkeys', JSON.stringify(signed.publicKeys.map((key) => key.pem)));
+    const verifyResponse = await verifyRequest(new Request('http://localhost/api/verify', { method: 'POST', body: verifyForm }));
+    expect(verifyResponse.status).toBe(200);
+    const report = await verifyResponse.json() as { valid: boolean; signers: { name: string; externalKeyMatches: boolean | null }[]; unmatchedPublicKeys: string[] };
+    expect(report.valid).toBe(true);
+    expect(report.signers.map((signer) => signer.name)).toEqual(['Signer A', 'Signer B']);
+    expect(report.signers.every((signer) => signer.externalKeyMatches === true)).toBe(true);
+    expect(report.unmatchedPublicKeys).toEqual([]);
+
+    verifyForm.set('pubkeys', JSON.stringify([carol.publicKey.export({ format: 'pem', type: 'spki' }).toString()]));
+    const unmatchedResponse = await verifyRequest(new Request('http://localhost/api/verify', { method: 'POST', body: verifyForm }));
+    const unmatched = await unmatchedResponse.json() as typeof report;
+    expect(unmatched.valid).toBe(true);
+    expect(unmatched.signers.every((signer) => signer.externalKeyMatches === null)).toBe(true);
+    expect(unmatched.unmatchedPublicKeys).toHaveLength(1);
+  });
+
   it('adds a QR page, verifies, and reports the signer', async () => {
     const src = await pdf(2);
     const r = await signDocument(src, alice, ORIGIN);
@@ -304,6 +342,24 @@ describe('several signers', () => {
     expect(report.signers.map((signer) => signer.name)).toEqual(['Alice Rahma', 'Bob Santoso']);
     expect(result.qr.secondary?.signer.name).toBe('Alice Rahma');
     expect((await PDFDocument.load(result.file)).getPageCount()).toBe(2);
+  });
+
+  it('matches optional external PEMs to each signer by fingerprint without weakening document verification', async () => {
+    const signers = [alice, bob, carol];
+    const result = await signDocumentChain(await pdf(1), signers, ORIGIN);
+    const embeddedOnly = verifyDocument(result.file);
+    expect(embeddedOnly.valid).toBe(true);
+    expect(embeddedOnly.signers.every((signer) => signer.externalKeyMatches === null)).toBe(true);
+
+    const keys = new Map(signers.map((signer) => [fingerprint(rawPublic(signer.publicKey)), signer.publicKey]));
+    const matching = verifyDocument(result.file, { publicKeys: keys });
+    expect(matching.valid).toBe(true);
+    expect(matching.signers.every((signer) => signer.externalKeyMatches === true)).toBe(true);
+
+    keys.set(fingerprint(rawPublic(alice.publicKey)), bob.publicKey);
+    const mismatched = verifyDocument(result.file, { publicKeys: keys });
+    expect(mismatched.valid).toBe(true);
+    expect(mismatched.signers.map((signer) => signer.externalKeyMatches)).toEqual([false, true, true]);
   });
 
   it('three signers sign in turn; all are valid, share one document id, and the QR page is added once', async () => {

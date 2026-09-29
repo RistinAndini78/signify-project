@@ -74,7 +74,7 @@ export async function signDocumentChain(file: Buffer, signers: Signer[], origin:
 
 export interface SignerReport {
   index: number; name: string; title: string; org: string; time: string; fp: string; docId: string;
-  hashOk: boolean; sigOk: boolean; qrOk: boolean; keyMatches: boolean; valid: boolean; registeredAs: string | null; reason: string;
+  hashOk: boolean; sigOk: boolean; qrOk: boolean; keyMatches: boolean; externalKeyMatches: boolean | null; valid: boolean; registeredAs: string | null; reason: string;
 }
 
 export interface VerifyReport {
@@ -86,6 +86,8 @@ export interface VerifyReport {
 export interface VerifyOptions {
   /** Use this key instead of the key stored in each block (the "wrong key" test, or a key obtained elsewhere). */
   publicKey?: KeyObject;
+  /** Optional external keys indexed by their public-key fingerprint. */
+  publicKeys?: Map<string, KeyObject>;
   /** QR text or payload to check. */
   qr?: string;
   /** Name of a registered key, by fingerprint, or null. */
@@ -134,14 +136,17 @@ export async function signDocument(file: Buffer, signer: Signer, origin: string,
 
 function verifyBlock(file: Buffer, loc: Located, index: number, opts: VerifyOptions): SignerReport {
   const b = loc.block, meta = metaOf(b), claimedRaw = fromB64u(b.pk);
+  const claimedFp = fingerprint(claimedRaw);
+  const matchedExternalKey = opts.publicKeys?.get(claimedFp);
   const key = opts.publicKey ?? publicFromRaw(claimedRaw);
   const fp = fingerprint(rawPublic(key));
-  const keyMatches = fp === fingerprint(claimedRaw);
+  const keyMatches = fp === claimedFp;
+  const externalKeyMatches = opts.publicKeys ? (matchedExternalKey ? fingerprint(rawPublic(matchedExternalKey)) === claimedFp : null) : null;
   const hashOk = sha256hex(file.subarray(0, loc.start)) === b.h;
   const sigOk = keyMatches && verifyMessage(key, docMessage(b.h, b.id, fp, meta, b.qs), fromB64u(b.sig));
   const qrOk = keyMatches && verifyMessage(key, qrMessage(b.id, fp, meta), fromB64u(b.qs));
   const reason = !hashOk ? 'the document was changed after this signature' : !keyMatches ? 'the public key does not match the signer key' : !sigOk ? 'the signature is not valid' : !qrOk ? 'the QR signature in the block is not valid' : 'valid';
-  return { index: index + 1, name: b.n, title: b.t, org: b.o, time: b.d, fp: fingerprint(claimedRaw), docId: b.id, hashOk, sigOk, qrOk, keyMatches, valid: hashOk && sigOk && qrOk, registeredAs: opts.registry?.(fingerprint(claimedRaw)) ?? null, reason };
+  return { index: index + 1, name: b.n, title: b.t, org: b.o, time: b.d, fp: claimedFp, docId: b.id, hashOk, sigOk, qrOk, keyMatches, externalKeyMatches, valid: hashOk && sigOk && qrOk, registeredAs: opts.registry?.(claimedFp) ?? null, reason };
 }
 
 export function verifyDocument(file: Buffer, opts: VerifyOptions = {}): VerifyReport {
@@ -159,7 +164,7 @@ export function verifyDocument(file: Buffer, opts: VerifyOptions = {}): VerifyRe
   if (opts.qr) {
     try {
       const d = parseQr(opts.qr);
-      const key = opts.publicKey ?? (() => {
+      const key = opts.publicKey ?? opts.publicKeys?.get(d.fp) ?? (() => {
         const fromFile = located.find((l) => fingerprint(fromB64u(l.block.pk)) === d.fp);
         try { return fromFile ? publicFromRaw(fromB64u(fromFile.block.pk)) : null; } catch { return null; }
       })();

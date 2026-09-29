@@ -1,11 +1,11 @@
 // Renders the report figures (SVG) from data-uji/hasil/hasil.json. Run `npm run bench` first.
-// Usage: npm run charts   -> laporan/gambar/*.svg
+// Usage: npm run charts   -> data-uji/grafik/*.svg
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = join(__dirname, '..');
 const data = JSON.parse(readFileSync(join(root, 'data-uji', 'hasil', 'hasil.json'), 'utf8'));
-const out = join(root, 'laporan', 'gambar');
+const out = join(root, 'data-uji', 'grafik');
 mkdirSync(out, { recursive: true });
 
 const COLORS = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e', '#9467bd'];
@@ -97,6 +97,8 @@ const pick = (label: string) => Number(sizes.find((r) => String(r[0]).startsWith
 bars('Ukuran objek (byte)', 'byte', ['Tanda tangan (r||s)', 'Tanda tangan (DER)', 'Kunci publik', 'Payload QR', 'Blok tanda tangan'],
   [{ name: 'byte', values: [pick('Tanda tangan ECDSA'), pick('Tanda tangan format DER'), pick('Kunci publik, titik'), pick('Payload QR'), pick('Blok tanda tangan')] }], 'ukuran.svg');
 
-const multi = data.multi as Row[];
-lines('Beberapa penandatangan: waktu verifikasi', 'ms', multi.map((r) => `${r[0]} orang`), [{ name: 'verify', values: multi.map((r) => Number(r[3])) }], 'multi-waktu.svg');
-lines('Beberapa penandatangan: tambahan ukuran berkas', 'byte', multi.map((r) => `${r[0]} orang`), [{ name: 'tambahan', values: multi.map((r) => Number(r[2])) }], 'multi-ukuran.svg');
+const multi = data.multi as Row[] | undefined;
+if (multi?.length) {
+  lines('Beberapa penandatangan: waktu verifikasi', 'ms', multi.map((r) => `${r[0]} orang`), [{ name: 'verify', values: multi.map((r) => Number(r[3])) }], 'multi-waktu.svg');
+  lines('Beberapa penandatangan: tambahan ukuran berkas', 'byte', multi.map((r) => `${r[0]} orang`), [{ name: 'tambahan', values: multi.map((r) => Number(r[2])) }], 'multi-ukuran.svg');
+}

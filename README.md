@@ -53,8 +53,8 @@ Tanpa `BLOB_READ_WRITE_TOKEN`, aplikasi memakai `data/keystore` lokal. Storage l
 1. **Buat kunci**: isi nama, jabatan, institusi, dan kata sandi kunci (minimal 10 karakter).
 2. **Tanda tangani**: pilih file `.dsk`, masukkan passphrase dan identitas, lalu pilih PDF; unduh berkas `.signed.pdf` dan lihat QR-Code.
 3. **Multi-signature**: pilih PDF asli, tambahkan 2 sampai 12 signer dengan file `.dsk` masing-masing, lalu finalisasi. PDF final memiliki satu QR untuk setiap signer dan blok signature berantai. File `.dsk` serta passphrase hanya disimpan sementara di memori halaman sampai finalisasi; refresh halaman menghapus draft.
-4. **Verifikasi**: unggah berkas bertanda tangan; tempel JSON hasil scan QR. Tabel menunjukkan tiap penandatangan.
-5. **Uji**: ubah satu karakter berkas dan verifikasi lagi (gagal); pilih kunci publik lain (gagal); ubah isi QR (gagal).
+4. **Verifikasi**: unggah berkas bertanda tangan. File `.pem` bersifat opsional; unggah satu atau beberapa public key untuk pencocokan signer. Tabel menunjukkan hasil tiap penandatangan.
+5. **Uji**: ubah satu karakter berkas dan verifikasi lagi (gagal); gunakan public key yang berbeda; ubah isi QR (gagal).
 
 API dengan curl:
 ```bash
@@ -75,7 +75,7 @@ Pengujian wajib dilakukan langsung dari halaman **Uji Ketahanan** agar seluruh h
 Pengujian unit untuk fungsi inti tetap tersedia sebagai pemeriksaan pengembang:
 ```bash
 npm test          # unit test fungsi inti
-npm run charts    # grafik SVG dari hasil benchmark lama di laporan/gambar/
+npm run charts    # grafik SVG dari hasil benchmark di data-uji/grafik/
 ```
 Hasil pengujian wajib yang dikumpulkan berasal dari tombol halaman dan dapat disimpan di `data-uji/hasil/`.
 

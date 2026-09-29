@@ -109,6 +109,10 @@ td code, .mono { font-size: 0.78rem; overflow-wrap: anywhere; }
 .button-secondary:hover { color: white; background: var(--maroon-dark); }
 .multi-sign-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; }
 .multi-sign-actions button { min-height: 50px; }
+.key-mode-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 0 14px; padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: #f4e9e5; }
+.key-mode-switch button { min-height: 42px; padding: 9px 12px; }
+.key-mode-switch button.button-secondary { border-color: transparent; color: var(--muted); }
+.key-mode-switch button.button-secondary:hover { border-color: var(--maroon); color: white; }
 .reset-chain { margin-top: 12px; }
 .status { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 1.05rem; font-weight: 700; }
 .status.good { color: var(--maroon); }

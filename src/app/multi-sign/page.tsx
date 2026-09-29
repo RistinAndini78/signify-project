@@ -22,9 +22,11 @@ function download(name: string, bytes: Uint8Array) {
 
 export default function MultiSignPage() {
   const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [keyMode, setKeyMode] = useState<'create' | 'upload'>('create');
   const [dskFile, setDskFile] = useState<File | null>(null);
   const [dskInputKey, setDskInputKey] = useState(0);
   const [passphrase, setPassphrase] = useState('');
+  const [passphraseConfirm, setPassphraseConfirm] = useState('');
   const [identity, setIdentity] = useState({ name: '', title: '', org: '' });
   const [rows, setRows] = useState<SignerRow[]>([]);
   const [staged, setStaged] = useState<StagedSigner[]>([]);
@@ -42,9 +44,11 @@ export default function MultiSignPage() {
     setSigned(null);
     setRows([]);
     setStaged([]);
+    setKeyMode('create');
     setDskFile(null);
     setDskInputKey((key) => key + 1);
     setPassphrase('');
+    setPassphraseConfirm('');
     setIdentity({ name: '', title: '', org: '' });
   }
 
@@ -53,9 +57,11 @@ export default function MultiSignPage() {
     setSigned(null);
     setRows([]);
     setStaged([]);
+    setKeyMode('create');
     setDskFile(null);
     setDskInputKey((key) => key + 1);
     setPassphrase('');
+    setPassphraseConfirm('');
     setIdentity({ name: '', title: '', org: '' });
     setError('');
   }
@@ -66,29 +72,55 @@ export default function MultiSignPage() {
       setError('Pilih PDF asli untuk memulai rantai baru.');
       return;
     }
-    if (!dskFile || !passphrase || !identity.name.trim() || !identity.title.trim() || !identity.org.trim()) {
-      setError('Lengkapi file .dsk, passphrase, nama, jabatan, dan institusi.');
+    if (!identity.name.trim() || !identity.title.trim() || !identity.org.trim()) {
+      setError('Lengkapi nama, jabatan, dan institusi signer.');
+      return;
+    }
+    if (keyMode === 'create' && passphrase.length < 8) {
+      setError('Passphrase kunci minimal 8 karakter.');
+      return;
+    }
+    if (keyMode === 'create' && passphrase !== passphraseConfirm) {
+      setError('Konfirmasi passphrase belum sama.');
+      return;
+    }
+    if (keyMode === 'upload' && (!dskFile || !passphrase)) {
+      setError('Pilih file .dsk dan masukkan passphrase-nya.');
       return;
     }
     if (rows.length >= 12) {
       setError('Batas maksimum adalah 12 signer dalam satu dokumen.');
       return;
     }
-    if (!dskFile.name.toLowerCase().endsWith('.dsk')) {
+    if (keyMode === 'upload' && !dskFile?.name.toLowerCase().endsWith('.dsk')) {
       setError('File kunci harus berformat .dsk.');
       return;
     }
     setBusy(true);
     try {
-      const portable = JSON.parse(await dskFile.text()) as { fp?: unknown };
+      let signerFile = dskFile;
+      if (keyMode === 'create') {
+        const response = await fetch('/api/keys/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passphrase }),
+        });
+        const generated = await response.json() as { keyFile?: unknown; fp?: unknown; error?: string };
+        if (!response.ok) throw new Error(generated.error ?? 'Pembuatan kunci gagal.');
+        if (typeof generated.keyFile !== 'string' || typeof generated.fp !== 'string') throw new Error('Respons pembuatan kunci tidak valid.');
+        signerFile = new File([generated.keyFile], `signify-${generated.fp}.dsk`, { type: 'application/json' });
+      }
+      if (!signerFile) throw new Error('File kunci tidak tersedia.');
+      const portable = JSON.parse(await signerFile.text()) as { fp?: unknown };
       if (typeof portable.fp !== 'string' || !/^[0-9a-f]{16}$/.test(portable.fp)) throw new Error('File .dsk tidak memiliki sidik jari yang valid.');
       if (rows.some((row) => row.fp === portable.fp)) throw new Error('Kunci ini sudah dipilih untuk signer lain. Gunakan kunci berbeda.');
-      const signer = { ...identity, name: identity.name.trim(), title: identity.title.trim(), org: identity.org.trim(), fp: portable.fp, dskFile, passphrase };
+      const signer = { ...identity, name: identity.name.trim(), title: identity.title.trim(), org: identity.org.trim(), fp: portable.fp, dskFile: signerFile, passphrase };
       setStaged((current) => [...current, signer]);
       setRows((current) => [...current, { name: signer.name, title: signer.title, org: signer.org, fp: signer.fp }]);
       setDskFile(null);
       setDskInputKey((key) => key + 1);
       setPassphrase('');
+      setPassphraseConfirm('');
       setIdentity({ name: '', title: '', org: '' });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Signer tidak dapat ditambahkan.');
@@ -119,6 +151,7 @@ export default function MultiSignPage() {
       setStaged([]);
       setDskFile(null);
       setPassphrase('');
+      setPassphraseConfirm('');
       setIdentity({ name: '', title: '', org: '' });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Finalisasi tanda tangan gagal.');
@@ -150,13 +183,18 @@ export default function MultiSignPage() {
             {currentFile && <div className="co-signing-status"><b>{signed ? 'PDF final selesai' : 'PDF asli siap'}</b><span>{currentFile.name}</span><small>{currentFile.size.toLocaleString('id-ID')} byte · kredensial signer hanya ditahan sementara pada sesi halaman ini</small></div>}
 
             {currentFile && !signed && <>
-              <div className="full-field"><label htmlFor={`multi-dsk-${dskInputKey}`}>File kunci privat (.dsk)</label><input key={dskInputKey} id={`multi-dsk-${dskInputKey}`} type="file" accept=".dsk,application/json" onChange={(event) => setDskFile(event.target.files?.[0] ?? null)} /></div>
-              <div className="field"><label htmlFor="multi-pass">Kata sandi kunci</label><input id="multi-pass" type="password" autoComplete="current-password" placeholder="Passphrase untuk file .dsk" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></div>
+              <div className="key-mode-switch" role="group" aria-label="Cara menyiapkan kunci signer">
+                <button type="button" className={keyMode === 'create' ? '' : 'button-secondary'} aria-pressed={keyMode === 'create'} onClick={() => { setKeyMode('create'); setDskFile(null); setPassphrase(''); setPassphraseConfirm(''); }}>Buat kunci baru</button>
+                <button type="button" className={keyMode === 'upload' ? '' : 'button-secondary'} aria-pressed={keyMode === 'upload'} onClick={() => { setKeyMode('upload'); setDskFile(null); setDskInputKey((key) => key + 1); setPassphrase(''); setPassphraseConfirm(''); }}>Pakai file .dsk</button>
+              </div>
+              {keyMode === 'upload' && <div className="full-field"><label htmlFor={`multi-dsk-${dskInputKey}`}>File kunci privat (.dsk)</label><input key={dskInputKey} id={`multi-dsk-${dskInputKey}`} type="file" accept=".dsk,application/json" onChange={(event) => setDskFile(event.target.files?.[0] ?? null)} /></div>}
+              <div className="field"><label htmlFor="multi-pass">{keyMode === 'create' ? 'Passphrase kunci baru' : 'Passphrase file .dsk'}</label><input id="multi-pass" type="password" autoComplete={keyMode === 'create' ? 'new-password' : 'current-password'} placeholder={keyMode === 'create' ? 'Minimal 8 karakter' : 'Passphrase untuk file .dsk'} value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></div>
+              {keyMode === 'create' && <div className="field"><label htmlFor="multi-pass-confirm">Ulangi passphrase</label><input id="multi-pass-confirm" type="password" autoComplete="new-password" placeholder="Ulangi passphrase kunci" value={passphraseConfirm} onChange={(event) => setPassphraseConfirm(event.target.value)} /></div>}
               <div className="field"><label htmlFor="multi-name">Nama</label><input id="multi-name" placeholder="Nama lengkap signer" value={identity.name} onChange={(event) => setIdentity({ ...identity, name: event.target.value })} /></div>
               <div className="field"><label htmlFor="multi-title">Jabatan</label><input id="multi-title" placeholder="Jabatan signer" value={identity.title} onChange={(event) => setIdentity({ ...identity, title: event.target.value })} /></div>
               <div className="field"><label htmlFor="multi-org">Institusi</label><input id="multi-org" placeholder="Nama institusi" value={identity.org} onChange={(event) => setIdentity({ ...identity, org: event.target.value })} /></div>
               <div className="multi-sign-actions">
-                <button onClick={addSigner} disabled={busy}>{busy ? 'Menyiapkan signer...' : `Tambah signer ${signerNumber}`}</button>
+                <button onClick={addSigner} disabled={busy}>{busy ? 'Menyiapkan signer...' : keyMode === 'create' ? `Buat kunci & tambah signer ${signerNumber}` : `Tambah signer ${signerNumber}`}</button>
                 {staged.length >= 2 && <button className="button-secondary" onClick={finalizeSignatures} disabled={busy}>{busy ? 'Membuat PDF final...' : `Finalisasi ${staged.length} signer`}</button>}
               </div>
             </>}

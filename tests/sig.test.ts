@@ -89,6 +89,22 @@ describe('keystore', () => {
   });
 });
 
+describe('portable key export API', () => {
+  it('allows one generated key per signer up to the multi-sign maximum', async () => {
+    const headers = { 'content-type': 'application/json', 'x-forwarded-for': 'multi-sign-key-batch-test' };
+    for (let index = 0; index < 12; index += 1) {
+      const response = await exportKey(new Request('http://localhost/api/keys/export', {
+        method: 'POST', headers, body: JSON.stringify({ passphrase: 'passphrase-uji' }),
+      }));
+      expect(response.status).toBe(201);
+    }
+    const overLimit = await exportKey(new Request('http://localhost/api/keys/export', {
+      method: 'POST', headers, body: JSON.stringify({ passphrase: 'passphrase-uji' }),
+    }));
+    expect(overLimit.status).toBe(429);
+  });
+});
+
 describe('sign and verify a PDF', () => {
   it('creates a downloadable .dsk and signs a PDF through the upload API without a stored key id', async () => {
     const keyResponse = await exportKey(new Request('http://localhost/api/keys/export', {

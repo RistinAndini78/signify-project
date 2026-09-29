@@ -2,7 +2,7 @@ import { allow, clientKey, json } from '../../../../lib/http';
 import { createPortableKey, VaultError } from '../../../../lib/sig/keystore';
 
 export async function POST(req: Request) {
-  if (!allow(`portable-key:${clientKey(req)}`, 10)) return json({ error: 'Terlalu banyak permintaan. Coba lagi sebentar.' }, 429);
+  if (!allow(`portable-key:${clientKey(req)}`, 12)) return json({ error: 'Terlalu banyak permintaan. Coba lagi sebentar.' }, 429);
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== 'object') return json({ error: 'Data passphrase tidak valid.' }, 400);
   try {
